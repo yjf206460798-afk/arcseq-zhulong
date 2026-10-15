@@ -15,6 +15,7 @@
 | 发动机横剖 A-A / B-B / C-C | `refs/layout/E2_发动机横剖.png` | PE2 |
 | 发动机爆炸图 | `refs/layout/E3_发动机爆炸图.png` | PE3 |
 | 发动机三模式 | `refs/layout/E4_发动机三模式.png` | PE4 |
+| 驾驶舱侧剖 | `refs/layout/K1_驾驶舱侧剖.png` | PK1 + 修改一轮 |
 
 ### P1 · 剪影探索
 ```
@@ -128,6 +129,11 @@ Panel 3 "ROCKET · VACUUM": intake doors closed flush, propellant line from dors
 Small mode label and a 3-item status line on each panel (e.g. "FANS DEPLOYED / RAMPS DOWN / SIDE NOZZLES"). Style: dark blue-black background, industrial vector illustration, ultra-fine pale cyan-white linework, muted blue-grey structure, glow only in the core and exhaust, one vermilion accent on the core casing. Flat, no photorealism. Corner text "ARCSEQ / FIG.02". Original design, not based on any film, game, or existing IP.
 ```
 结果：三模式与出口数变化正确；两侧多画了长罐，自带口号要裁掉。
+
+### PK1 · 驾驶舱侧剖（附 C2 + L0），再在结果上修改一轮
+初稿要点：机头到座舱后约 10 m 的侧剖，编号 1～14（光窗虹膜、传感器组、机头姿控喷口、航电舱、眉骨、遮光盾收起 / 合上两态、低座舱盖、半躺 30° 的飞行员与弹射座椅、平视显示器、环形屏幕墙、侧杆 / 油门、头顶开关板、前起落架舱），座舱盖低于眉骨线。
+修改轮要点：座舱盖做成看得见的低矮切面玻璃、透出头盔；眉骨前凸；遮光盾实线收在眉骨里、虚线盖住座舱盖并画滑动箭头；弹射弧线从座椅正上方起；座椅再后仰；修正 11 / 13 / 7 的指向。
+结果：内部排布可用；外部座舱盖 / 眉骨关系仍不准，以几何母版为准。
 
 ## 待用（可选，不影响开工）
 
