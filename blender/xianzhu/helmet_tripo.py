@@ -30,6 +30,7 @@ STOW_SHRINK = 0.93  # 收起时往里收（藏进壳与内衬之间）
 RING_CLEAR = 0.004  # 颈环内表面离领口外表面
 NOSE_CLEAR = 0.022  # 鼻尖离透明面罩内表面
 CLEAR_IN = 0.002  # 透明面罩在遮光面罩里面 2 mm
+VISOR_GROW_DEG = 30.0  # 面罩带往外长时跨过的相邻面夹角上限（面罩与面框等交界的折棱 > 45°）
 DEEP = 0.12  # 面罩窗后这么深以内、从窗口看得见的壳内侧都挖掉
 
 
@@ -106,11 +107,31 @@ def find_parts(bm):
     antenna = max((c for c in comps if max(v.co.z for f in c for v in f.verts) > z1 - 1e-6), key=len)
     if antenna is shell:
         raise RuntimeError("天线和主壳连在一起了（重生成后拓扑变了？）")
-    regs = smooth_regions(shell)
-    fwd = [r for r in regs if centre(r).x > 0 and (sum((f.normal * f.calc_area() for f in r), Vector()) / area(r)).x > 0.8]
-    visor = max(fwd, key=area)
+    visor = visor_band(shell)
     small = [c for c in comps if c is not shell and c is not ring and c is not antenna]
     return {"shell": shell, "visor": visor, "ring": ring, "antenna": antenna, "small": small}
+
+
+def visor_band(shell, seed_angle=12.0, grow_angle=VISOR_GROW_DEG):
+    """面罩带（作者 2026-10-15 指出：只取正中平的一段是错的，两侧向后绕的部分要算进来）：
+    种子 = 正前方、法线朝前的最大一块平滑区（相邻面 < 12°）里最靠前的面——就是面罩带正中；从它往外长，跨过相邻面
+    夹角 < grow_angle 的边，碰到面罩与面框、眉骨、护颌交界的折棱（底稿里这些交界都 > 45°）就停。不再要求平均法线朝前，
+    所以面罩带完整包到两侧，直到面框为止。"""
+    regs = smooth_regions(shell, seed_angle)
+    fwd = [r for r in regs if centre(r).x > 0 and (sum((f.normal * f.calc_area() for f in r), Vector()) / area(r)).x > 0.8]
+    seed = max(max(fwd, key=area), key=lambda f: f.calc_center_median().x)
+    pool = set(shell)
+    thr = math.radians(grow_angle)
+    seen = {seed}
+    st = [seed]
+    while st:
+        g = st.pop()
+        for e in g.edges:
+            for h in e.link_faces:
+                if h in pool and h not in seen and h.normal.angle(g.normal, 0.0) < thr:
+                    seen.add(h)
+                    st.append(h)
+    return list(seen)
 
 
 def split_object(src, groups, props):
@@ -135,56 +156,79 @@ def split_object(src, groups, props):
 
 
 class VisorFit:
-    """面罩面的干净重做：底稿面罩带下沿有两道 V 形小缺口、边是锯齿，所以不直接用它。前视 (y, z) 里取外沿点的凸包当
-    轮廓，面形用多项式 x = Σ c·y^i·z^j（y 到 4 次、z 到 2 次）最小二乘拟合底稿面罩的顶点——面罩本来就是光顺曲面，
-    拟合残差 < 1 mm。"""
+    """面罩面的干净重做：底稿面罩带的边是锯齿、下沿两道 V 形小缺口，所以不直接用它。面罩带从正前方一直绕到两侧面框，
+    前视的 x(y, z) 在两侧太陡，改用竖直轴的柱坐标：轴过盔心 (xc, 0)；u = θ·R0（θ = atan2(y, x − xc)，R0 = 面罩平均半径，
+    u 是米制弧长，和 z 同单位），r = 到轴的水平距离。轮廓 = 外沿点在 (u, z) 里的凸包；面形 r(u, z) 用多项式（u 到 6 次、
+    z 到 2 次）最小二乘拟合底稿面罩的顶点。"""
 
-    def __init__(self, V, boundary):
+    def __init__(self, V, boundary, xc):
         from suit import hull2d
 
-        self.hull = hull2d(boundary[:, 1:])
-        self.cy, self.cz = V[:, 1].mean(), V[:, 2].mean()
-        self.terms = [(i, j) for i in range(5) for j in range(3)]
-        A = self._A(V[:, 1], V[:, 2])
-        self.c = np.linalg.lstsq(A, V[:, 0], rcond=None)[0]
-        self.residual = float(np.abs(A @ self.c - V[:, 0]).max())
+        self.xc = xc
+        self.R0 = float(np.hypot(V[:, 0] - xc, V[:, 1]).mean())
+        u, z, _ = self.cyl(boundary)
+        self.hull = hull2d(np.stack([u, z], 1))
+        u, z, r = self.cyl(V)
+        self.cu, self.cz = u.mean(), z.mean()
+        self.terms = [(i, j) for i in range(7) for j in range(3)]
+        A = self._A(u, z)
+        self.c = np.linalg.lstsq(A, r, rcond=None)[0]
+        self.residual = float(np.abs(A @ self.c - r).max())
 
-    def _A(self, y, z):
-        y, z = np.asarray(y) - self.cy, np.asarray(z) - self.cz
-        return np.stack([y ** i * z ** j for i, j in self.terms], -1)
+    def cyl(self, P):
+        P = np.atleast_2d(np.asarray(P, float))
+        dx, dy = P[:, 0] - self.xc, P[:, 1]
+        return np.arctan2(dy, dx) * self.R0, P[:, 2], np.hypot(dx, dy)
 
-    def x(self, y, z):
-        return self._A(y, z) @ self.c
+    def _A(self, u, z):
+        u, z = (np.asarray(u) - self.cu) / 0.1, (np.asarray(z) - self.cz) / 0.1
+        return np.stack([u ** i * z ** j for i, j in self.terms], -1)
 
-    def span(self, z):
-        """凸包在高度 z 处的左右边界 y。"""
-        H = self.hull
-        ys = []
-        for k in range(len(H)):
-            (y0, z0), (y1, z1) = H[k], H[(k + 1) % len(H)]
-            if (z0 - z) * (z1 - z) <= 0 and z0 != z1:
-                ys.append(y0 + (y1 - y0) * (z - z0) / (z1 - z0))
-        return min(ys), max(ys)
+    def r(self, u, z):
+        return self._A(u, z) @ self.c
 
-    def sheet(self, nu=48, nv=10, inset=0.0):
-        """网格面：nv+1 行（z 从凸包下沿到上沿，行内 y 在凸包左右边界间等分）。inset：沿面法线往里（−x 侧）移。
-        返回 (顶点, 面, 外沿环的顶点号)。"""
-        z0, z1 = self.hull[:, 1].min(), self.hull[:, 1].max()
-        V = []
-        for j in range(nv + 1):
-            z = z0 + (z1 - z0) * (0.002 + 0.996 * j / nv)
-            ya, yb = self.span(z)
-            for i in range(nu + 1):
-                y = ya + (yb - ya) * i / nu
-                V.append((float(self.x(y, z)), y, z))
-        V = np.array(V)
+    def _p(self, u, z):
+        r = self.r(u, z)
+        th = u / self.R0
+        return np.stack([self.xc + r * np.cos(th), r * np.sin(th), z], 1)
+
+    def point(self, u, z, inset=0.0):
+        """柱面上 (u, z) 处的点；inset：沿面法线往里（朝盔轴）移。"""
+        u, z = np.atleast_1d(u).astype(float), np.atleast_1d(z).astype(float)
+        P = self._p(u, z)
         if inset:
             e = 1e-4
-            dy = (self.x(V[:, 1] + e, V[:, 2]) - self.x(V[:, 1] - e, V[:, 2])) / (2 * e)
-            dz = (self.x(V[:, 1], V[:, 2] + e) - self.x(V[:, 1], V[:, 2] - e)) / (2 * e)
-            N = np.stack([np.ones(len(V)), -dy, -dz], 1)
+            N = np.cross(self._p(u + e, z) - P, self._p(u, z + e) - P)
             N /= np.linalg.norm(N, axis=1, keepdims=True)
-            V = V - N * inset
+            out = np.sign(((P - np.array([self.xc, 0, P[0, 2]])) * N * np.array([1, 1, 0])).sum(1, keepdims=True))
+            P = P - N * out * inset
+        return P
+
+    def x_front(self, z):
+        """正前方（u = 0）的面罩面 x。"""
+        return float(self.point(0.0, z)[0, 0])
+
+    def span(self, z):
+        """凸包在高度 z 处的左右边界 u。"""
+        H = self.hull
+        us = []
+        for k in range(len(H)):
+            (u0, z0), (u1, z1) = H[k], H[(k + 1) % len(H)]
+            if (z0 - z) * (z1 - z) <= 0 and z0 != z1:
+                us.append(u0 + (u1 - u0) * (z - z0) / (z1 - z0))
+        return min(us), max(us)
+
+    def sheet(self, nu=72, nv=10, inset=0.0):
+        """网格面：nv+1 行（z 从凸包下沿到上沿，行内 u 在凸包左右边界间等分）。返回 (顶点, 面, 外沿环的顶点号)。"""
+        z0, z1 = self.hull[:, 1].min(), self.hull[:, 1].max()
+        U, Z = [], []
+        for j in range(nv + 1):
+            z = z0 + (z1 - z0) * (0.002 + 0.996 * j / nv)
+            ua, ub = self.span(z)
+            for i in range(nu + 1):
+                U.append(ua + (ub - ua) * i / nu)
+                Z.append(z)
+        V = self.point(np.array(U), np.array(Z), inset)
         W = nu + 1
         F = [(j * W + i, j * W + i + 1, (j + 1) * W + i + 1, (j + 1) * W + i) for j in range(nv) for i in range(nu)]
         ring = list(range(0, W)) + [j * W + nu for j in range(1, nv + 1)] + list(range(nv * W + nu - 1, nv * W - 1, -1)) + \
@@ -213,11 +257,11 @@ def grow_poly(poly, d):
 
 
 def window(shell, fit, props, depth):
-    """面罩窗：前视凸包轮廓里、窗口到窗后 depth 之间的壳面全挖掉（内衬、底稿面罩缺口里的小尖刺）；窗框 = 面罩外沿
-    往里（−x）拉 depth、略向窗心收 4% 的一圈暗色筒（单独件，法线朝里）。"""
+    """面罩窗（柱坐标 (u, z, r)）：凸包轮廓里、面罩面到往里 depth 之间的壳面全挖掉（内衬、底稿面罩缺口里的小尖刺）；
+    往里到 DEEP 以内、从窗口看得见的壳内侧（护颊内壁）按略收的轮廓挖。窗框 = 面罩外沿朝盔轴往里拉 depth、略向窗心收
+    4% 的一圈暗色筒（单独件，法线朝里）。"""
     V, F, ring = fit.sheet()
     R = [Vector(V[i]) for i in ring]
-    xf = max(p.x for p in R)
     poly = fit.hull
     big = grow_poly(poly, 0.0015)
     core = grow_poly(poly, -0.001)
@@ -226,31 +270,36 @@ def window(shell, fit, props, depth):
     bm.from_mesh(shell.data)
     dead = []
     for f in bm.faces:
-        c = f.calc_center_median()
-        if not c.x < float(fit.x(c.y, c.z)) + 0.003:
+        u, z, r = fit.cyl([tuple(f.calc_center_median())])
+        rf = float(fit.r(u, z)[0])
+        if not r[0] < rf + 0.003:
             continue
-        # 窗框筒范围内：中心在轮廓里，或任一顶点伸进窗里（窗两侧槽壁上斜着伸进来的碎片）
-        if xf - depth - 0.01 < c.x and (inside_poly((c.y, c.z), big) or any(inside_poly((v.co.y, v.co.z), core) for v in f.verts)):
+        U, Z, _ = fit.cyl([tuple(v.co) for v in f.verts])
+        if rf - depth - 0.01 < r[0] and (inside_poly((u[0], z[0]), big) or any(inside_poly(q, core) for q in zip(U, Z))):
             dead.append(f)
-        # 窗框筒后面到脸前（窗后 DEEP 以内）：从窗口望进去看得见的壳内侧（护颊内壁），按筒口收 4% 后的轮廓挖
-        elif xf - DEEP < c.x and any(inside_poly((v.co.y, v.co.z), inner) for v in f.verts):
+        elif rf - DEEP < r[0] and any(inside_poly(q, inner) for q in zip(U, Z)):
             dead.append(f)
     n_dead = len(dead)
     bmesh.ops.delete(bm, geom=dead, context="FACES")
     bm.to_mesh(shell.data)
     bm.free()
     draft.restore_normals(shell)
-    cy, cz = poly.mean(0)
+    cu, cz = poly.mean(0)
     bm = bmesh.new()
     a = [bm.verts.new(p) for p in R]
-    b = [bm.verts.new(Vector((p.x - depth, cy + (p.y - cy) * 0.96, cz + (p.z - cz) * 0.96))) for p in R]
+    b = []
+    for p in R:
+        u, z, r = (q[0] for q in fit.cyl([tuple(p)]))
+        u2, z2, r2 = cu + (u - cu) * 0.96, cz + (z - cz) * 0.96, r - depth
+        th = u2 / fit.R0
+        b.append(bm.verts.new(Vector((fit.xc + r2 * math.cos(th), r2 * math.sin(th), z2))))
     for i in range(len(R)):
         j = (i + 1) % len(R)
         bm.faces.new((a[i], a[j], b[j], b[i]))
     bm.normal_update()
+    mid = Vector(tuple(fit.point(cu, cz, inset=depth * 0.5)[0]))
     for f in bm.faces:  # 法线朝窗心（里面）
-        c = f.calc_center_median()
-        if f.normal.dot(Vector((0, cy - c.y, cz - c.z))) < 0:
+        if f.normal.dot(mid - f.calc_center_median()) < 0:
             f.normal_flip()
     liner = geo.obj_from_bm("xz.helmet.liner", bm, "cap", props)
     return liner, n_dead
@@ -430,7 +479,8 @@ def build(parts, props, path=draft.DRAFT_HELMET, state="soft"):
     bnd = np.array([tuple(v.co) for v in bmr.verts if v.is_boundary])
     bmr.free()
     VS = draft.verts(raw)
-    fit = VisorFit(VS, bnd)
+    W0 = draft.verts(o)
+    fit = VisorFit(VS, bnd, xc=float((W0[:, 0].min() + W0[:, 0].max()) / 2))
     log["visor_fit_residual_mm"] = round(fit.residual * 1000, 2)
     bpy.data.objects.remove(raw)
     Vs, Fs, _ = fit.sheet()
@@ -445,13 +495,15 @@ def build(parts, props, path=draft.DRAFT_HELMET, state="soft"):
     tree = geo.bvh_of(o)
     hits = []
     for t in (-0.6, -0.3, 0.0, 0.3, 0.6):
-        for u in (-0.3, 0.0, 0.3):
-            z = vz.mean() + u * (vz.max() - vz.min()) / 2
-            ya, yb = fit.span(z)
-            y = (ya + yb) / 2 + t * (yb - ya) / 2
-            loc, n, _, dist = tree.ray_cast(Vector((float(fit.x(y, z)) + 0.001, y, z)), Vector((-1, 0, 0)), 0.1)
+        for w in (-0.3, 0.0, 0.3):
+            z = vz.mean() + w * (vz.max() - vz.min()) / 2
+            ua, ub = fit.span(z)
+            u = (ua + ub) / 2 + t * (ub - ua) / 2
+            p = Vector(tuple(fit.point(u, z)[0]))
+            inward = Vector((fit.xc - p.x, -p.y, 0)).normalized()
+            loc, n, _, dist = tree.ray_cast(p - inward * 0.001, inward, 0.1)
             if loc is not None:
-                hits.append(float(fit.x(y, z)) - loc.x)
+                hits.append(dist - 0.001)
     depth = float(max(hits) + 0.004) if hits else 0.03
     liner, n_dead = window(o, fit, props, depth)
     out["xz.helmet.liner"] = liner
@@ -468,7 +520,7 @@ def build(parts, props, path=draft.DRAFT_HELMET, state="soft"):
         nt = nose_tip(face)
         eye = nt.z + 0.035
         vc = float(vz.mean())
-        xin = float(fit.x(0.0, vc - 0.035)) - CLEAR_IN
+        xin = fit.x_front(vc - 0.035) - CLEAR_IN
         d = Vector((xin - NOSE_CLEAR - nt.x, 0, vc - eye))
         face.data.transform(Matrix.Translation(d))
         log["face_move"] = [round(x, 4) for x in d]

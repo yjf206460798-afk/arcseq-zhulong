@@ -186,6 +186,40 @@ def closeups(out, tw):
     crop.resize((crop.width * 3, crop.height * 3), Image.LANCZOS).save(os.path.join(out, "REFERENCE-helmet.png"))
 
 
+def visor_coverage(out, tw):
+    """验收（作者 2026-10-15）：前视和左右 45° 正交，三行 = 底稿原样 / 遮光罩落下 / 收起。落下时要盖满底稿原来的整条
+    面罩带，左右两端都抵到面框，不留灰边。拼成一张 CHECK-visor-coverage.png。"""
+    sv = bpy.data.objects["xz.helmet.sunvisor"]
+    shell = bpy.data.objects["xz.helmet.shell"]
+    V = draft.verts(shell)
+    c = Vector(((V.min(0) + V.max(0)) / 2).tolist()) + Vector((0.0, 0, -0.02))
+    rows = (("底稿原样", True, 1.0), ("遮光罩落下", False, 1.0), ("遮光罩收起", False, 0.0))
+    views = (("左 45°", 45), ("前视", 0), ("右 45°", -45))
+    tiles = []
+    for label, raw, down in rows:
+        sv.data.shape_keys.key_blocks["down"].value = down
+        tw.show(raw)
+        row = []
+        for vname, az in views:
+            p = os.path.join(out, "frames", f"cov-{int(raw)}-{down:.0f}-{az}.png")
+            shoot(p, c, az, 3, 0.36, (640, 640), scale=0.35, k=1.4, samples=48)
+            row.append(Image.open(p).convert("RGB"))
+        tiles.append((label, row))
+    sv.data.shape_keys.key_blocks["down"].value = 0.0
+    from PIL import ImageDraw, ImageFont
+
+    W = Image.new("RGB", (120 + 640 * 3, 40 + 640 * 3), (16, 21, 24))
+    d = ImageDraw.Draw(W)
+    f = ImageFont.truetype("/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc", 22)
+    for i, (vname, _) in enumerate(views):
+        d.text((120 + 640 * i + 280, 8), vname, font=f, fill=(220, 233, 235))
+    for j, (label, row) in enumerate(tiles):
+        d.text((10, 40 + 640 * j + 300), label, font=f, fill=(220, 233, 235))
+        for i, im in enumerate(row):
+            W.paste(im, (120 + 640 * i, 40 + 640 * j))
+    W.save(os.path.join(out, "CHECK-visor-coverage.png"))
+
+
 def standing(out, objs, helmet_src):
     os.makedirs(out, exist_ok=True)
     look.cycles_materials()
@@ -195,6 +229,7 @@ def standing(out, objs, helmet_src):
     look.cycles_materials()
     four_views(out, tw)
     closeups(out, tw)
+    visor_coverage(out, tw)
     tw.show(False)
     for o in tw.body + tw.helmet + tw.plug:
         o.hide_render = True

@@ -241,7 +241,10 @@ def main():
     logs["tris_seated"] = tris(seat_objs)
     print("seated", logs["tris_seated"], "tris")
     if out_review:
+        import shutil
+
         review_x1.seated(os.path.join(ROOT, out_review), seat_objs)
+        shutil.rmtree(os.path.join(ROOT, out_review, "frames"), ignore_errors=True)  # 中间帧不进仓库
     if arg("--save"):
         bpy.ops.wm.save_as_mainfile(filepath=arg("--save"))
     if "--no-export" in sys.argv:
