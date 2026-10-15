@@ -113,6 +113,8 @@ if (qualityMode) {
   }
 }
 const pre = value("--eval", "");
+// --frames：采样帧数（默认 240）；软件 GL 下很重的场景（剖视）用 40 帧，免得一次 CDP 调用超过 90 s
+const FRAMES = Number(value("--frames", 240));
 const showId = value("--show", null);
 const hold = Number(value("--hold", 3));
 const origin = value("--origin", "park");
@@ -140,7 +142,6 @@ const SHOW = `(async () => {
 })()`;
 const RUN = showId ? SHOW : `(async () => {
   const A = window.__arcseq;
-  ${pre}
   A.view(0, ${JSON.stringify(mode)});
   const times = [];
   const ms = [];
@@ -151,17 +152,19 @@ const RUN = showId ? SHOW : `(async () => {
       const t0 = performance.now();
       A.view(i * 1.1);
       ms.push(performance.now() - t0);
-      if (++i < 240) requestAnimationFrame(tick);
+      if (++i < ${FRAMES}) requestAnimationFrame(tick);
       else done();
     };
     requestAnimationFrame(tick);
   });
   const sorted = (l) => l.slice().sort((a, b) => a - b);
   const gaps = times.slice(1).map((t, i) => t - times[i]);
-  return { frames: 240, drawMedian: sorted(ms)[120], drawP95: sorted(ms)[228], gapMedian: sorted(gaps)[119], gapP95: sorted(gaps)[226] };
+  return { frames: ${FRAMES}, drawMedian: sorted(ms)[${FRAMES} >> 1], drawP95: sorted(ms)[Math.floor(${FRAMES} * 0.95)], gapMedian: sorted(gaps)[(${FRAMES} - 1) >> 1], gapP95: sorted(gaps)[Math.floor((${FRAMES} - 1) * 0.95)] };
 })()`;
 const metrics = async () => Object.fromEntries((await send("Performance.getMetrics")).result.metrics.map((m) => [m.name, m.value]));
 const runs = [];
+// 转台测量的前置（如打开剖视、加载内部模块）放在计时窗外
+if (pre && !showId) await evaluate(`(async () => { ${pre} })()`, 240000);
 for (let r = 0; r < Number(value("--runs", showId ? 1 : 3)); r++) {
   // 起点准备在计时窗外；不会让悬停 / 前飞的前置演出污染当前动作的脚本时间。
   if (showId) await evaluate(`__arcseq.origin(${JSON.stringify(origin)})`);
@@ -177,7 +180,7 @@ if (showId)
     `perf show "${showId}" from ${origin} ${mode} at ${width} px, DPR ${scale}, ${throttle}× CPU (whole show + ${hold} s hold, ${runs.length} run(s)): ${med("frames")} frames · main-thread task ${med("task").toFixed(2)} ms · script ${med("script").toFixed(2)} ms per frame · page advance+draw median ${med("drawMedian").toFixed(2)} ms (p95 ${med("drawP95").toFixed(2)}, max ${med("drawMax").toFixed(1)}) · show wall ${(med("showMs") / 1000).toFixed(1)} s · mean frame ${med("gapMedian").toFixed(1)} ms · page frames drawn during hold ${med("holdFrames")}${argv.includes("--reduced") ? " (reduced motion)" : ""}`,
   );
 else console.log(
-  `perf ${mode} at ${width} px, DPR ${scale}, ${throttle}× CPU (median of ${runs.length} × 240 frames at 1.1°): main-thread task ${med("task").toFixed(2)} ms · script ${med("script").toFixed(2)} ms · draw() ${med("drawMedian").toFixed(2)} ms (p95 ${med("drawP95").toFixed(2)}) · frame interval ${med("gapMedian").toFixed(1)} ms (p95 ${med("gapP95").toFixed(1)}) · script reference 5 ms → ${med("script") <= 5 ? "within" : "OVER"} (software main-thread recorded only) · page ready ${ready} ms`,
+  `perf ${mode} at ${width} px, DPR ${scale}, ${throttle}× CPU (median of ${runs.length} × ${FRAMES} frames at 1.1°): main-thread task ${med("task").toFixed(2)} ms · script ${med("script").toFixed(2)} ms · draw() ${med("drawMedian").toFixed(2)} ms (p95 ${med("drawP95").toFixed(2)}) · frame interval ${med("gapMedian").toFixed(1)} ms (p95 ${med("gapP95").toFixed(1)}) · script reference 5 ms → ${med("script") <= 5 ? "within" : "OVER"} (software main-thread recorded only) · page ready ${ready} ms`,
 );
 console.log('quality: '+JSON.stringify(await evaluate('__arcseq.quality()')));
 if (problems.length) throw Error(problems.join('\n'));
