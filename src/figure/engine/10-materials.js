@@ -14,7 +14,10 @@
     varying float vAO;
     varying float vGlow;
     varying vec2 vUv;
+    #include <clipping_planes_pars_vertex>
     void main() {
+      vec4 mvPosition = viewMatrix * modelMatrix * vec4(position, 1.0);
+      #include <clipping_planes_vertex>
       vN = mat3(modelMatrix) * normal;
       vMark = aMark;
       vDepth = aDepth;
@@ -54,11 +57,20 @@
     uniform float uGlowPower;
     uniform float uGlowPass;
     uniform float uDim;
+    uniform float uSweep;
+    uniform float uUseSweep;
+    uniform vec3 uInside;
+    #include <clipping_planes_pars_fragment>
     float st(float a, float b, float x) { float t = clamp((x - a) / (b - a), 0.0, 1.0); return t * t * (3.0 - 2.0 * t); }
     void main() {
-      float glow = vGlow * uGlowPower;
+      #include <clipping_planes_fragment>
+      // 沿 uv.x 点亮（朱红嵌条：与 accent 线同一个扫过量）
+      float lit = uUseSweep > 0.5 ? 1.0 - smoothstep(uSweep - 0.06, uSweep, vUv.x) : 1.0;
+      float glow = vGlow * uGlowPower * lit;
       // 发光缓冲：只有自发光量，其余写黑（但照常写深度，挡住后面的发光件）
       if (uGlowPass > 0.5) { gl_FragColor = vec4(uGlowColor * glow * (1.0 - uUseFlat), 1.0); return; }
+      // 剖视：被剖切面切开的蒙皮从里面看是暗的内壁（不分档，只随朝上程度略变）
+      if (!gl_FrontFacing) { gl_FragColor = vec4(uInside * (0.75 + 0.25 * abs(normalize(vN).z)), 1.0); return; }
       float score = dot(normalize(vN), uLight);
       float u = st(uBands.x - uSoft, uBands.x + uSoft, score) + st(uBands.y - uSoft, uBands.y + uSoft, score)
               + st(uBands.z - uSoft, uBands.z + uSoft, score) + st(uBands.w - uSoft, uBands.w + uSoft, score);
@@ -89,7 +101,7 @@
   const shared = {
     uLight: { value: LIGHT }, uUseFlat: { value: 0 }, uFlat: { value: rgb(P.silhouette) }, uBump: { value: rgb(P.bump ?? "#000000") }, uLip: { value: rgb(P.lip ?? P.body[2]) },
     uMouth: { value: (P.mouth ?? ["#192024", "#050708"]).map(rgb) }, uGlintDir: { value: new THREE.Vector3(0, 0, 1) }, uGlintColor: { value: rgb(DATA.fx.glint.color) },
-    uGlintBand: { value: new THREE.Vector2(...DATA.fx.glint.band) }, uAOK: { value: DATA.fx.ao ?? 0 }, uGlowPass: { value: 0 }, uDim: { value: 1 },
+    uGlintBand: { value: new THREE.Vector2(...DATA.fx.glint.band) }, uAOK: { value: DATA.fx.ao ?? 0 }, uGlowPass: { value: 0 }, uDim: { value: 1 }, uInside: { value: rgb(P.inside ?? "#0c0f11") },
   };
   /** 发光通道：每个 key 一个通电量 uniform（0…1），零件写 glow: { key, color }。 */
   const glowPower = new Map();
@@ -120,6 +132,8 @@
         uPaint: { value: rgb(detail?.paint ?? "#000000") },
         uGlowColor: { value: rgb(glow?.color ?? "#000000") },
         uGlowPower: glow ? powerOf(glow.key) : { value: 0 },
+        uSweep: { value: 1 },
+        uUseSweep: { value: 0 },
       },
     });
     materials.push(m);
@@ -149,10 +163,10 @@
   const materialOf = (part) => {
     const base = MAT[part.material ?? (part.system === "void" ? "void" : part.glass ? "glass" : part.kind === "round" ? "round" : "hull")] ?? MAT.hull;
     if (!part.glow) return base;
-    const key = `${base.uuid}|${part.glow.key}|${part.glow.color}`;
+    const key = `${base.uuid}|${part.glow.key}|${part.glow.color}|${part.glow.sweep ?? ""}`;
     if (!glowMats.has(key)) {
       const m = base.clone();
-      m.uniforms = { ...base.uniforms, uGlowColor: { value: rgb(part.glow.color) }, uGlowPower: powerOf(part.glow.key) };
+      m.uniforms = { ...base.uniforms, uGlowColor: { value: rgb(part.glow.color) }, uGlowPower: powerOf(part.glow.key), uSweep: part.glow.sweep ? powerOf(part.glow.sweep) : { value: 1 }, uUseSweep: { value: part.glow.sweep ? 1 : 0 } };
       materials.push(m);
       glowMats.set(key, m);
     }
@@ -169,4 +183,25 @@
       recessed.set(material, m);
     }
     return recessed.get(material);
+  };
+
+  /**
+   * 剖视（FIG.02 复刻样板）：剖切面（模型坐标 y = 0，切掉 y > 0 一侧）。cut 的零件用材质的“可剖”副本：开 three 的局部剖切、
+   * 双面画（背面是暗内壁）；剖切面每帧按转台换到世界坐标（placeCut）。不剖视时剖切面数组为空，与普通材质完全一样。
+   */
+  renderer.localClippingEnabled = true;
+  const cutPlanes = [];
+  const cutPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0);
+  const cutMats = new Map();
+  const cutMaterial = (material) => {
+    if (!cutMats.has(material)) {
+      const m = material.clone();
+      m.uniforms = material.uniforms;
+      m.clipping = true;
+      m.clippingPlanes = cutPlanes;
+      m.side = THREE.DoubleSide;
+      materials.push(m);
+      cutMats.set(material, m);
+    }
+    return cutMats.get(material);
   };

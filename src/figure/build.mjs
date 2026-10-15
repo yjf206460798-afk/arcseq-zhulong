@@ -14,6 +14,8 @@ const ROOT = join(HERE, "..", "..");
 const argv = process.argv.slice(2);
 const option = (name, fallback) => argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;
 const VARIANT = option("variant", "glb");
+/** --assets=dist/fast：用 blender/build.py --fast 的产物预览（不烘焙）。 */
+const ASSETS = join(ROOT, option("assets", "assets"));
 
 /** 舞台画幅（CSS 宽高比 1000 : 670）与相机俯仰 30°（FIG.01 定，固定审图机位 30°/120°/210°/300°）。 */
 const VIEW = { width: 1000, height: 670 };
@@ -31,13 +33,27 @@ async function geometry() {
     const { buildNose } = await import("../geometry/nose.mjs");
     return buildNose();
   }
-  const glb = join(ROOT, "assets", "zhulong.glb");
-  const meta = join(ROOT, "assets", "zhulong.json");
+  const glb = join(ASSETS, "zhulong.glb");
+  const meta = join(ASSETS, "zhulong.json");
   if (!existsSync(glb)) throw new Error("assets/zhulong.glb 不存在：先运行 .venv/bin/python blender/build.py");
   const M = JSON.parse(readFileSync(meta, "utf8"));
   const detail = {};
-  for (const [name, spec] of Object.entries(M.detail ?? {})) detail[name] = { ...spec, src: `data:image/png;base64,${readFileSync(join(ROOT, "assets", spec.file)).toString("base64")}` };
-  return { parts: glbParts(glb), seams: M.seams ?? [], landmarks: M.landmarks ?? {}, joints: M.joints ?? [], offset: M.offset ?? [0, 0, 0], detail, focus: M.focus, masks: M.masks ?? [] };
+  for (const [name, spec] of Object.entries(M.detail ?? {})) detail[name] = { ...spec, src: `data:image/png;base64,${readFileSync(join(ASSETS, spec.file)).toString("base64")}` };
+  // 母版的硬边：每个零件一串 Float32（base64），浏览器端随 GLB 一起解（engine/05-glb.js）
+  const edges = (names) => Object.fromEntries(Object.entries(M.edges ?? {}).filter(([k]) => names.has(k)).map(([k, v]) => [k, Buffer.from(Float32Array.from(v).buffer).toString("base64")]));
+  const ext = glbParts(glb);
+  const extNames = new Set(ext.map((p) => p.name.split("#")[0]));
+  const interiorGlb = join(ASSETS, "zhulong-interior.glb");
+  const inner = existsSync(interiorGlb) ? glbParts(interiorGlb) : [];
+  const innerNames = new Set(inner.map((p) => p.name.split("#")[0]));
+  return {
+    parts: [],
+    fitParts: ext,
+    mesh: { glb: readFileSync(glb).toString("base64"), edges: edges(extNames) },
+    modules: inner.length ? { interior: { glb: readFileSync(interiorGlb).toString("base64"), edges: edges(innerNames) } } : {},
+    tris: { exterior: ext.reduce((n, p) => n + p.f.length / 4, 0), interior: inner.reduce((n, p) => n + p.f.length / 4, 0) },
+    seams: M.seams ?? [], landmarks: M.landmarks ?? {}, joints: M.joints ?? [], offset: M.offset ?? [0, 0, 0], detail, focus: M.focus, masks: M.masks ?? [], callouts: M.callouts ?? [],
+  };
 }
 const G = await geometry();
 
@@ -63,6 +79,28 @@ const PALETTE = {
   glass: ["#0f1215", "#12161a", "#161b20", "#1b2127", "#232a31"],
   interior: ["#15181a", "#181b1d", "#1b1f21", "#1f2325", "#24282a"],
   sensor: ["#120d0a", "#16100b", "#1b130d", "#21170f", "#281c12"],
+  /** 座舱盖框、滑轨：比机身略暗的金属 */
+  frame: ["#1c1f21", "#212426", "#26292b", "#2c2f31", "#323538"],
+  /** 小件金属（接头、滚轮座、格栅）与镀铬（活塞杆、探头管）、橡胶（密封圈、轮胎） */
+  metal: ["#202426", "#272b2e", "#2f3336", "#373b3e", "#41464a"],
+  chrome: ["#2a2f33", "#343a3e", "#40464b", "#4d5459", "#5c646a"],
+  rubber: ["#0e0f10", "#111213", "#141516", "#17181a", "#1b1c1e"],
+  iris: ["#101214", "#131517", "#16181a", "#1a1c1f", "#1f2124"],
+  vermilion: ["#4a1a14", "#5a1f17", "#6b251b", "#7d2b1f", "#8f3224"],
+  stand: ["#0f1315", "#121618", "#15191b", "#181c1f", "#1c2023"],
+  /** 内部（剖视）：结构框偏亮、设备箱暖灰、管线冷灰、线束暗、罐体浅；屏幕与座椅、压力服 */
+  structure: ["#2a2e30", "#313537", "#383c3f", "#404447", "#494e51"],
+  avionics: ["#262624", "#2d2d2a", "#353531", "#3d3d38", "#46463f"],
+  panel: ["#1d1e1d", "#222321", "#272826", "#2c2d2b", "#323330"],
+  pipe: ["#22282b", "#293033", "#31393c", "#394246", "#424c50"],
+  cable: ["#161819", "#1a1c1d", "#1e2021", "#222526", "#272a2b"],
+  tank: ["#2f3437", "#373d40", "#40474a", "#4a5155", "#555d61"],
+  screen: ["#0c1417", "#0f191c", "#121e22", "#162428", "#1a2a2f"],
+  seat: ["#1d1f20", "#222425", "#28292b", "#2d2f31", "#333537"],
+  suit: ["#2c2e2a", "#333530", "#3b3d37", "#43453f", "#4c4e47"],
+  helmet: ["#3a3d3e", "#434748", "#4d5152", "#575b5d", "#626768"],
+  section: ["#56605f", "#5d6766", "#646e6d", "#6b7574", "#727c7b"],
+  inside: "#0d1012",
   deck: ["#111619", "#13181b", "#151b1e", "#182023", "#1b2124"],
   bump: "#0a0c0d",
   lip: "#3a3f43",
@@ -80,6 +118,7 @@ const MATERIALS = {
   void: { tones: "body", shade: "hull", mouth: true },
   round: { tones: "body", shade: "round" },
 };
+for (const k of ["frame", "metal", "chrome", "rubber", "iris", "vermilion", "stand", "structure", "avionics", "panel", "pipe", "cable", "tank", "screen", "seat", "suit", "helmet", "section"]) MATERIALS[k] = { tones: k, shade: ["metal", "chrome", "rubber", "pipe", "cable", "tank", "helmet", "suit"].includes(k) ? "round" : "facet" };
 /**
  * 线条分级（FIG.01 G2，VISUAL_TARGET：L0 0.6～0.9 / L1 约 0.5 / L2 0.35～0.5 px）。
  * accents：作品标志色的线（朱红棱线）：线宽同主描边、偏暗不荧光；idle 为未通电时的亮度（三四成），通电后由机头沿线点亮并进发光缓冲。
@@ -155,7 +194,7 @@ const SHOWS = VARIANT === "empty" ? [] : [
 ];
 
 const offset = G.offset ?? [0, 0, 0];
-const FIT = fitView(pointsOf(G.parts), { view: VIEW, elevation: ELEVATION, offset, rise: 0, minR: 3.2 });
+const FIT = fitView(pointsOf(G.fitParts ?? G.parts), { view: VIEW, elevation: ELEVATION, offset, rise: 0, minR: 3.2 });
 const DATA = {
   view: VIEW,
   elevation: ELEVATION,
@@ -174,6 +213,9 @@ const DATA = {
   motion: MOTION,
   director: DIRECTOR,
   parts: G.parts,
+  mesh: G.mesh,
+  callouts: G.callouts ?? [],
+  modules: Object.fromEntries(Object.keys(G.modules ?? {}).map((k) => [k, `zhulong-${k}.js`])),
   seams: G.seams,
   landmarks: Object.fromEntries(Object.entries(G.landmarks).map(([k, v]) => [k, v.map(r4)])),
   joints: G.joints,
@@ -189,11 +231,11 @@ const DATA = {
 };
 
 const LABEL = "机库转台上的一架原创单座空天战机「烛龙」的机头段视觉样板。";
-const stage = `<div class="af-stage" data-mode="lines" tabindex="0" role="slider" aria-label="${LABEL} 拖动或用方向键旋转；按 1 剪影 2 体积 3 线稿" aria-valuemin="0" aria-valuemax="359" aria-valuenow="30" aria-valuetext="机位 30°"><canvas class="af-canvas"></canvas></div>`;
+const stage = `<div class="af-stage" data-mode="lines" tabindex="0" role="slider" aria-label="${LABEL} 拖动或用方向键旋转；按 1 剪影 2 体积 3 线稿" aria-valuemin="0" aria-valuemax="359" aria-valuenow="30" aria-valuetext="机位 30°"><canvas class="af-canvas"></canvas><svg class="af-overlay" data-callouts aria-hidden="true"></svg><div class="af-legend" data-legend hidden></div></div>`;
 const chip = (attr, label) => `<button type="button" class="af-chip" ${attr}>${label}</button>`;
 const consoleHtml = `<section class="af-console" aria-label="控制台"><div class="af-actions">
 <div class="af-row"><span class="af-key">MAIN</span><div class="af-chips" role="group" aria-label="演出">${SHOWS.map((s) => chip(`data-show="${s.id}"`, `▶ ${s.label}`)).join("")}<span class="af-state" data-show-state aria-live="polite">停机</span></div></div>
-<div class="af-row"><span class="af-key">SYSTEMS</span><div class="af-chips" role="group" aria-label="机构">${CONTROLS.filter((c) => !c.sweep).map((c) => chip(`data-control="${c.id}"`, c.label)).join("")}</div></div>
+<div class="af-row"><span class="af-key">SYSTEMS</span><div class="af-chips" role="group" aria-label="机构">${CONTROLS.filter((c) => !c.sweep).map((c) => chip(`data-control="${c.id}"`, c.label)).join("")}${Object.keys(G.modules ?? {}).length ? chip('data-cutaway aria-pressed="false"', "剖视") : ""}</div></div>
 <div class="af-row"><span class="af-key">ACTIONS</span><div class="af-panel" data-panel><span class="af-hint">点选零件，或选上面的机构</span></div></div>
 </div></section>`;
 const page = pageHtml({
@@ -210,4 +252,7 @@ const page = pageHtml({
 const target = option("out", join(ROOT, "dist", VARIANT === "empty" ? "empty.html" : "index.html"));
 mkdirSync(dirname(target), { recursive: true });
 writeFileSync(target, page);
+// 按需模块：单独一个脚本（从本地文件打开也能用 <script src> 加载），第一次打开剖视时才拉
+for (const [name, mod] of Object.entries(G.modules ?? {})) writeFileSync(join(dirname(target), `zhulong-${name}.js`), `window.__arcseqModule(${JSON.stringify(name)}, ${JSON.stringify(mod)});\n`);
+if (G.tris) console.log(`triangles: exterior ${G.tris.exterior} · interior ${G.tris.interior} · module ${Object.keys(G.modules ?? {}).map((k) => `${k} ${(JSON.stringify(G.modules[k]).length / 1024).toFixed(0)} KB`).join(", ")}`);
 console.log(`wrote ${target} · ${(page.length / 1024).toFixed(0)} KB · variant ${VARIANT} · ${G.parts.length} parts · ${(JSON.stringify(DATA).length / 1024).toFixed(0)} KB data · K ${FIT.K.toFixed(2)} px/m · deck r ${FIT.deck.r} m`);

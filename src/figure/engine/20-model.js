@@ -6,7 +6,7 @@
   // 通用字段：name、joint、system（"void" 空腔 / "interior" / …）、material、skin（线条蒙皮组）、smooth（平滑组）、glow { key, color }。
   const facesOf = (part) => {
     const faces = [];
-    for (let at = 0; at < part.f.length; ) faces.push(part.f.slice(at + 1, at + 1 + part.f[at])), (at += part.f[at] + 1);
+    for (let at = 0; at < part.f.length; ) faces.push(Array.from(part.f.slice(at + 1, at + 1 + part.f[at]))), (at += part.f[at] + 1);
     return faces;
   };
   function newell(v, face) {
@@ -198,18 +198,27 @@
 
   const pickables = [];
   const glowMeshes = [];
-  {
+  /** 带 show 的网格（剖视面带等）：按状态显隐；cut 的网格在剖视时被剖切面切开。modules：模块名 → 它的网格与线层。 */
+  const showMeshes = [];
+  const cutMeshes = [];
+  /**
+   * 零件 → 网格：按（刚体组、材质、跨组接触面、show、cut）合并成少数网格。parts 已在 DATA.parts 里，first 为第一个的序号
+   * （点选按序号查回零件）。按需模块（剖视内部）加载后再调一次。返回新建的网格。
+   */
+  function buildMeshes(parts, first = 0) {
     const buckets = new Map();
-    DATA.parts.forEach((part, index) => {
+    const made = [];
+    parts.forEach((part, k) => {
+      const index = first + k;
       const material = materialOf(part);
       const geo = part.kind === "round" ? roundGeometry(part) : polyGeometry(part);
       for (const [kind, data] of Object.entries(geo)) {
         if (!data.pos.length) continue;
-        const key = `${keyOf(part)}|${kind}|${material.uuid}`;
-        if (!buckets.has(key)) buckets.set(key, { joint: keyOf(part), glow: !!part.glow, material: kind === "recess" ? recess(material) : material, ...newBucket(), ranges: [] });
+        const key = `${keyOf(part)}|${kind}|${material.uuid}|${part.show ?? ""}|${part.cut ? 1 : 0}`;
+        if (!buckets.has(key)) buckets.set(key, { joint: keyOf(part), glow: !!part.glow, show: part.show ?? null, cut: !!part.cut, material: kind === "recess" ? recess(material) : material, ...newBucket(), ranges: [] });
         const b = buckets.get(key);
         b.ranges.push([b.pos.length / 3, (b.pos.length + data.pos.length) / 3, index]);
-        for (const k of ["pos", "nor", "mark", "depth", "ao", "glow", "uv"]) for (let i = 0; i < data[k].length; i++) b[k].push(data[k][i]);
+        for (const q of ["pos", "nor", "mark", "depth", "ao", "glow", "uv"]) for (let i = 0; i < data[q].length; i++) b[q].push(data[q][i]);
       }
     });
     for (const b of buckets.values()) {
@@ -222,13 +231,19 @@
       g.setAttribute("aGlow", new THREE.Float32BufferAttribute(b.glow, 1));
       g.setAttribute("uv", new THREE.Float32BufferAttribute(b.uv, 2));
       g.computeBoundingSphere();
-      const mesh = new THREE.Mesh(g, b.material);
+      const mesh = new THREE.Mesh(g, b.cut ? cutMaterial(b.material) : b.material);
       mesh.userData.ranges = b.ranges;
+      mesh.userData.show = b.show;
       groupObj(b.joint).add(mesh);
       pickables.push(mesh);
       if (b.glow) glowMeshes.push(mesh);
+      if (b.show) showMeshes.push(mesh);
+      if (b.cut) cutMeshes.push(mesh);
+      made.push(mesh);
     }
+    return made;
   }
+  buildMeshes(DATA.parts);
   /** 点选：射线打到的三角形 → 所在零件。 */
   function partAt(hit) {
     const ranges = hit.object.userData.ranges;

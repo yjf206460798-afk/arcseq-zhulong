@@ -48,8 +48,42 @@
     };
     const edges = new Map();
     const key = (v, i) => `${Math.round(v[i * 3] * 1e4)},${Math.round(v[i * 3 + 1] * 1e4)},${Math.round(v[i * 3 + 2] * 1e4)}`;
+    // 带 edges 的零件（Blender 母版，PATTERNS「复刻标准」）：折边只用母版标记的硬边（线落在倒角中线上，不出双线）；
+    // 网格本身只出“曲面轮廓”候选：曲面件（curved）的每条非共面边，平面件里折角 < 11° 的缓边（倒角条的边不算），只在轮廓处画。
+    const SMOOTH_MAX = Math.cos((11 * Math.PI) / 180);
     for (const part of parts) {
-      if (part.lines === false) continue;
+      if (!part.edges) continue;
+      const E = part.edges;
+      for (let i = 0; i + 11 < E.length; i += 12) addSeg([E[i], E[i + 1], E[i + 2]], [E[i + 3], E[i + 4], E[i + 5]], [E[i + 6], E[i + 7], E[i + 8]], [E[i + 9], E[i + 10], E[i + 11]], KIND.crease, 1);
+      const v = part.v;
+      const own = new Map();
+      const F = part.f;
+      for (let at = 0; at < F.length; at += F[at] + 1) {
+        const n = F[at];
+        const face = F.subarray ? F.subarray(at + 1, at + 1 + n) : F.slice(at + 1, at + 1 + n);
+        const { n: normal, area } = newell(v, face);
+        if (area < 1e-10) continue;
+        for (let i = 0; i < n; i++) {
+          const ka = key(v, face[i]);
+          const kb = key(v, face[(i + 1) % n]);
+          if (ka === kb) continue;
+          const k = ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
+          let e = own.get(k);
+          if (!e) own.set(k, (e = { a: face[i], b: face[(i + 1) % n], sides: [] }));
+          e.sides.push(normal);
+        }
+      }
+      for (const { a, b, sides } of own.values()) {
+        if (sides.length !== 2) continue;
+        const [p, q] = sides;
+        const d = p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
+        if (d > 0.99995) continue;
+        if (!part.curved && d < SMOOTH_MAX) continue;
+        addSeg([v[a * 3], v[a * 3 + 1], v[a * 3 + 2]], [v[b * 3], v[b * 3 + 1], v[b * 3 + 2]], p, q, KIND.smooth, 1);
+      }
+    }
+    for (const part of parts) {
+      if (part.lines === false || part.edges) continue;
       const skin = part.system === "void" ? "void" : skinOf(part);
       let v;
       let faces;
@@ -121,8 +155,10 @@
     varying float vClass;
     varying float vWeight;
     varying float vU;
+    varying float vSide;
     void main() {
       float aClass = uClass;
+      vSide = mix(aA, aB, position.x).y;
       vWeight = aClass < 1.5 ? 1.0 : aWeight;
       vec4 ca = uPVM * vec4(aA, 1.0);
       vec4 cb = uPVM * vec4(aB, 1.0);
@@ -187,6 +223,7 @@
   const STYLE = DATA.lines;
   const QUAD = new THREE.Float32BufferAttribute([0, -1, 0, 1, -1, 0, 1, 1, 0, 0, -1, 0, 1, 1, 0, 0, 1, 0], 3);
   const lineShared = { uGlowPass: { value: 0 } };
+  const lineCut = { value: 0 };
   const lineLayers = [];
   function lineLayer(list, parent, { style = STYLE, accent = false } = {}) {
     const count = list.kind.length;
@@ -231,6 +268,7 @@
       uSweep: accent ? powerOf(`${accent.key}.sweep`) : { value: 0 },
       uIdle: { value: accent ? accent.idle : 0 },
       uGlowColor: { value: rgb(accent ? accent.glow : "#000000") },
+      uCut: { value: 0 },
     };
     // 先画次级、再一级、外轮廓最后盖在上面
     const LEVEL = [LINE.secondary, LINE.structure, LINE.contour];
@@ -257,6 +295,10 @@
       },
       levels(a, b, c) {
         uniforms.uLevel.value.set(a, b, c);
+      },
+      /** 剖视时切掉 y > 0 一侧（只对 cut 层）。 */
+      clip(on) {
+        uniforms.uCut.value = on ? 1 : 0;
       },
       tint(hex, k = 1) {
         uniforms.uTintMix.value = hex ? k : 0;
@@ -319,38 +361,47 @@
   const groupLines = new Map();
   const airLayers = [];
   const accentLayers = [];
-  {
+  /** 零件与分割线 → 线层（按刚体组、降级、show、cut 分层）；按需模块加载后再调一次。返回新建的线层。 */
+  function buildLayers(parts, seams) {
     const slots = new Map();
+    const made = [];
     // lineLevel "secondary"：这一层所有边一律降为次级线（细密的重复件：鳞片瓦、虹膜遮片），单独一层
-    const slot = (group, cap = 0) => {
-      const key = cap ? `${group}|cap${cap}` : group;
-      if (!slots.has(key)) slots.set(key, { group, cap, parts: [], seams: [] });
+    const slot = (group, cap = 0, show = null, cut = false) => {
+      const key = `${group}|${cap}|${show ?? ""}|${cut ? 1 : 0}`;
+      if (!slots.has(key)) slots.set(key, { group, cap, show, cut, parts: [], seams: [] });
       return slots.get(key);
     };
-    for (const part of DATA.parts) slot(keyOf(part), part.lineLevel === "secondary" ? LINE.secondary : part.lineLevel === "structure" ? LINE.structure : 0).parts.push(part);
+    for (const part of parts) slot(keyOf(part), part.lineLevel === "secondary" ? LINE.secondary : part.lineLevel === "structure" ? LINE.structure : 0, part.show ?? null, !!part.cut).parts.push(part);
     const accents = new Map();
-    for (const seam of DATA.seams ?? []) {
+    for (const seam of seams ?? []) {
       const key = groupKey(seam.joint);
       if (seam.level === "accent") {
         const k = `${key}|${seam.accent ?? "accent"}`;
         if (!accents.has(k)) accents.set(k, { key, spec: DATA.lines.accents[seam.accent ?? "accent"], seams: [] });
         accents.get(k).seams.push(seam);
-      } else slot(key).seams.push(seam);
+      } else slot(key, 0, seam.show ?? null, seam.cut ?? true).seams.push(seam);
     }
-    for (const [key, { group, cap, parts, seams }] of slots) {
-      const segs = buildLines(parts, seams);
+    for (const [key, { group, cap, show, cut, parts: ps, seams: ss }] of slots) {
+      const segs = buildLines(ps, ss);
       if (!segs.kind.length) continue;
       const layer = lineLayer(segs, groupObj(group));
       layer.group = group;
       layer.cap = cap;
+      layer.show = show;
+      layer.cut = cut;
       groupLines.set(key, layer);
       airLayers.push(layer);
+      made.push(layer);
     }
-    for (const { key, spec, seams } of accents.values()) {
-      const segs = buildLines([], seams);
+    for (const { key, spec, seams: ss } of accents.values()) {
+      const segs = buildLines([], ss);
       const layer = lineLayer(segs, groupObj(key), { style: { width: [spec.width, spec.width, spec.width], color: [spec.color, spec.color, spec.color], alpha: [spec.alpha, spec.alpha, spec.alpha] }, accent: spec });
       layer.group = key;
+      layer.cut = true;
       airLayers.push(layer);
       accentLayers.push(layer);
+      made.push(layer);
     }
+    return made;
   }
+  buildLayers(DATA.parts, DATA.seams);

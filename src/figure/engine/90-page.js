@@ -160,7 +160,8 @@
     shared.uLight.value = lightFor();
     const linesOn = mode === "lines";
     refreshFlush();
-    for (const layer of airLayers) layer.mesh.visible = linesOn;
+    for (const layer of airLayers) layer.mesh.visible = linesOn && (!layer.show || showOn(layer.show));
+    for (const mesh of showMeshes) mesh.visible = showOn(mesh.userData.show);
     deckLineGroup.visible = linesOn;
     shadow.visible = !silhouette;
     scene.updateMatrixWorld();
@@ -173,6 +174,9 @@
     return silhouette;
   }
   const drawHooks = [];
+  /** 状态显隐（剖视等）：showState[名] 为真时，show 为该名的网格与线层才画。 */
+  const showState = {};
+  const showOn = (k) => !!showState[k];
   function draw() {
     const silhouette = prepareDraw();
     renderAll(silhouette);
