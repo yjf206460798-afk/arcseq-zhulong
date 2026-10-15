@@ -18,6 +18,7 @@
     varying vec3 vM1;
     varying vec3 vM2;
     varying vec3 vW;
+    varying float vMy;
     #include <clipping_planes_pars_vertex>
     void main() {
       vec4 mvPosition = viewMatrix * modelMatrix * vec4(position, 1.0);
@@ -32,6 +33,7 @@
       vM1 = modelMatrix[1].xyz;
       vM2 = modelMatrix[2].xyz;
       vW = (modelMatrix * vec4(position, 1.0)).xyz;
+      vMy = position.y;
       gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0);
     }`;
   const FRAG = `
@@ -76,6 +78,7 @@
     varying vec3 vM1;
     varying vec3 vM2;
     varying vec3 vW;
+    varying float vMy;
     uniform float uLook;
     uniform vec3 uPbr;
     uniform sampler2D uPbrMap;
@@ -83,6 +86,8 @@
     uniform vec3 uViewDir;
     uniform vec3 uCamUp;
     uniform float uEnvK;
+    uniform float uDepthFade;
+    uniform float uFill;
     #include <clipping_planes_pars_fragment>
     float st(float a, float b, float x) { float t = clamp((x - a) / (b - a), 0.0, 1.0); return t * t * (3.0 - 2.0 * t); }
     // —— B 画法（参考图那种金属质感）：工作室环境光 = 地暗顶亮的渐变 + 五块柔光箱（主光左上前、右上前副光、顶条、右后轮廓条、前下补光），
@@ -115,6 +120,8 @@
     // 世界方向 → 相机坐标（x 朝相机、y 右、z 上）：工作室跟着相机，俯视审图时灯位不变
     vec3 camDir(vec3 r) { return vec3(dot(r, normalize(uViewDir)), r.y, dot(r, normalize(uCamUp))); }
     vec3 toLin(vec3 c) { return pow(c, vec3(2.2)); }
+    // 剖视的远近分档（R4）：离剖切面越远（零件坐标 −y）越暗，最远压到约六成，内部件分出前后层次
+    float depthFade() { return 1.0 - 0.38 * uDepthFade * smoothstep(0.05, 0.6, -vMy); }
     vec3 toSrgb(vec3 c) { return pow(max(c, vec3(0.0)), vec3(1.0 / 2.2)); }
     void main() {
       #include <clipping_planes_fragment>
@@ -133,7 +140,7 @@
           gl_FragColor = vec4(uCapColor * (1.0 - 0.14 * hatch) * uDim, uCapOpacity);
           return;
         }
-        gl_FragColor = vec4(uInside * (0.75 + 0.25 * abs(normalize(vN).z)), 1.0);
+        gl_FragColor = vec4(uInside * (0.75 + 0.25 * abs(normalize(vN).z)) * depthFade(), 1.0);
         return;
       }
       if (uLook > 0.5) {
@@ -142,7 +149,10 @@
         float rough = uPbr.y;
         if (uUsePbrMap > 0.5) {
           vec4 pm = texture2D(uPbrMap, vUv);
-          n = normalize(mat3(vM0, vM1, vM2) * (pm.rgb * 2.0 - 1.0));
+          // 贴图法线只在真有起伏（刻线、铆钉）处用：平整处贴图法线与几何法线只差 8 位量化误差，
+          // 在清晰的反射里会显成一道道条纹（R3 B 画法右侧面板的反射条纹），所以差值小于约 0.03 时用几何法线
+          vec3 nm = normalize(mat3(vM0, vM1, vM2) * (pm.rgb * 2.0 - 1.0));
+          n = normalize(mix(n, nm, smoothstep(0.03, 0.07, length(nm - n))));
           rough = clamp(rough * (pm.a / 0.55), 0.04, 1.0);
         }
         vec3 v = normalize(uViewDir);
@@ -168,9 +178,12 @@
         vec3 nc = camDir(n);
         float rim = pow(1.0 - nv, 4.0) * (0.3 + 0.7 * st(-0.3, 0.8, dot(nc, normalize(vec3(-0.4, 0.6, 0.7)))));
         vec3 lin = (diff * occl + spec * mix(1.0, occl, 0.85) + vec3(0.42, 0.5, 0.58) * rim * (0.35 + 0.65 * metal) * uEnvK * occl) * line;
+        // 壁板补光（uFill，剖视内衬用）：K1 的内壁是插画式的近乎平光，朝下的远侧屋面也读成浅灰——
+        // 按 uFill 混向「从剖切口照进来」的平光（只随朝向相机的程度略变）
+        lin = mix(lin, base * (0.6 + 0.4 * nv) * occl * line, uFill);
         vec3 cb = toSrgb(lin);
         if (uIsMouth > 0.5) cb = mix(uMouth[0], uMouth[1], smoothstep(0.0, 0.85, vDepth));
-        cb *= uDim;
+        cb *= uDim * depthFade();
         cb = mix(cb, uGlowColor, clamp(glow, 0.0, 1.0));
         gl_FragColor = vec4(mix(cb, uFlat, uUseFlat), uOpacity);
         return;
@@ -194,8 +207,10 @@
       }
       // 顶点 AO：只压暗，不改档位（档位仍由 n·L 决定，AO 是缝隙与内角里的一层薄暗）
       c *= mix(1.0, vAO, uAOK);
+      // 壁板补光（同 B）：混向第三档 × 朝向相机程度（A 的零件本身亮，壁板压在零件之下一档）
+      c = mix(c, uTone[2] * (0.8 + 0.2 * max(dot(normalize(vN), normalize(uViewDir)), 0.0)) * mix(1.0, vAO, uAOK), uFill);
       // 环境压暗（太空段：机体沉进深蓝黑，线条与发光照旧）
-      c *= uDim;
+      c *= uDim * depthFade();
       c = mix(c, uGlowColor, clamp(glow, 0.0, 1.0));
       gl_FragColor = vec4(mix(c, uFlat, uUseFlat), uOpacity);
     }`;
@@ -206,7 +221,7 @@
     uLight: { value: LIGHT }, uUseFlat: { value: 0 }, uFlat: { value: rgb(P.silhouette) }, uBump: { value: rgb(P.bump ?? "#000000") }, uLip: { value: rgb(P.lip ?? P.body[2]) },
     uMouth: { value: (P.mouth ?? ["#192024", "#050708"]).map(rgb) }, uGlintDir: { value: new THREE.Vector3(0, 0, 1) }, uGlintColor: { value: rgb(DATA.fx.glint.color) },
     uGlintBand: { value: new THREE.Vector2(...DATA.fx.glint.band) }, uAOK: { value: DATA.fx.ao ?? 0 }, uGlowPass: { value: 0 }, uDim: { value: 1 }, uInside: { value: rgb(P.inside ?? "#0c0f11") },
-    uLook: { value: DATA.look === "metal" ? 1 : 0 }, uViewDir: { value: VIEW }, uCamUp: { value: camera.up }, uEnvK: { value: DATA.metal?.env ?? 1 },
+    uLook: { value: DATA.look === "metal" ? 1 : 0 }, uDepthFade: { value: 0 }, uViewDir: { value: VIEW }, uCamUp: { value: camera.up }, uEnvK: { value: DATA.metal?.env ?? 1 },
   };
   /** 发光通道：每个 key 一个通电量 uniform（0…1），零件写 glow: { key, color }。 */
   const glowPower = new Map();
@@ -215,7 +230,7 @@
     return glowPower.get(key);
   };
   const materials = [];
-  function bandMaterial(shade, tones, { mouth = false, glint = 0, detail = null, glow = null, pbr = [0.3, 0.5, 1], pbrMap = null } = {}) {
+  function bandMaterial(shade, tones, { mouth = false, glint = 0, detail = null, glow = null, pbr = [0.3, 0.5, 1], pbrMap = null, fill = 0 } = {}) {
     const m = new THREE.ShaderMaterial({
       vertexShader: VERT,
       fragmentShader: FRAG,
@@ -246,6 +261,7 @@
         uPbr: { value: new THREE.Vector3(...pbr) },
         uPbrMap: { value: pbrMap?.texture ?? blackTex },
         uUsePbrMap: { value: pbrMap ? 1 : 0 },
+        uFill: { value: fill },
       },
     });
     materials.push(m);
@@ -266,9 +282,9 @@
     image.src = spec.src;
     detailTextures.set(name, { texture, k: spec.k, paint: spec.paint, mid: !!spec.mid });
   }
-  /** 材质表：作品在 DATA.materials 里给出 { 名: { tones: 色板键, shade: 明暗键, glint?, mouth?, detail?, glow? } }。 */
+  /** 材质表：作品在 DATA.materials 里给出 { 名: { tones: 色板键, shade: 明暗键, glint?, mouth?, detail?, glow?, fill? } }（fill：壁板补光 0…1）。 */
   const MAT = {};
-  for (const [name, spec] of Object.entries(DATA.materials)) MAT[name] = bandMaterial(DATA.shade[spec.shade ?? "hull"], P[spec.tones], { mouth: !!spec.mouth, glint: spec.glint ? DATA.fx.glint.strength : 0, detail: spec.detail ? detailTextures.get(spec.detail) : null, glow: spec.glow ?? null, pbr: spec.pbr, pbrMap: spec.pbrMap ? detailTextures.get(spec.pbrMap) ?? null : null });
+  for (const [name, spec] of Object.entries(DATA.materials)) MAT[name] = bandMaterial(DATA.shade[spec.shade ?? "hull"], P[spec.tones], { mouth: !!spec.mouth, glint: spec.glint ? DATA.fx.glint.strength : 0, detail: spec.detail ? detailTextures.get(spec.detail) : null, glow: spec.glow ?? null, pbr: spec.pbr, pbrMap: spec.pbrMap ? detailTextures.get(spec.pbrMap) ?? null : null, fill: spec.fill ?? 0 });
   MAT.deck = bandMaterial(DATA.shade.deck, P.deck);
   MAT.deck.uniforms = { ...MAT.deck.uniforms, uLook: { value: 0 } }; // 地台在 B 画法里仍用五档明暗
   /** 零件的材质：part.material 指名；否则空腔 → void、玻璃 → glass、其余 → hull。带 glow 的零件另有一份发光材质。 */
@@ -313,6 +329,20 @@
    * "inside"（空心的机身蒙皮）= 暗内壁，蒙皮自己的剖面由几何母版的剖面带（section.*）给出；
    * "shell"（座舱盖玻璃这类实心建模、实为薄壳的件）= 背面照常着色（半透明），玻璃的薄剖面由剖面带 section.canopy 给出。
    */
+  /** 半透明件（part.opacity < 1）：材质的透明副本，不写深度、在不透明件之后画。 */
+  const translucentMats = new Map();
+  const translucent = (material, opacity) => {
+    const key = `${material.uuid}|${opacity}`;
+    if (!translucentMats.has(key)) {
+      const m = material.clone();
+      m.uniforms = { ...material.uniforms, uOpacity: { value: opacity } };
+      m.transparent = true;
+      m.depthWrite = false;
+      materials.push(m);
+      translucentMats.set(key, m);
+    }
+    return translucentMats.get(key);
+  };
   const cutMaterial = (material, section = "cap") => {
     const key = `${material.uuid}|${section}`;
     if (!cutMats.has(key)) {

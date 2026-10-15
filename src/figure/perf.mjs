@@ -8,7 +8,7 @@
 //                                       （G4：实时跑完整场演出再悬停 hold 秒，按帧平均；另报页面自记的每帧推进 + 绘制耗时）
 //   每条命令都有上限：--timeout 秒（默认 240）内跑不完就杀掉 Chrome、报错退出（exit 2）；单个 CDP 调用 90 s 无回应也报错；
 //   演出在页面里另有上限（--show-limit 秒，默认 120），演出走不完直接报错，不会一直等一个不会到来的帧。
-//   --runs 1：只做一组快速采样；--height 844：按手机实际视口高度采样。
+//   --runs 1：只做一组快速采样；--height 844：按手机实际视口高度采样；--profile：第一轮附 CPU 剖析（每帧自耗时前 18 个函数）。
 //   --reduced 模拟“减少动态效果”（prefers-reduced-motion: reduce），用来查这个模式下的停绘逻辑。
 // 预算：1440 × DPR 2 每帧主线程 ≤ 13 ms；390 × DPR 3、4× 节流 ≤ 33 ms。云端 Chrome 用软件 GL（SwiftShader），
 // GPU 光栅也在 CPU 上做，所以帧间隔偏慢；G4.5 用脚本 ≤ 5 ms 作参考，主线程仅记录。
@@ -113,7 +113,7 @@ if (qualityMode) {
   }
 }
 const pre = value("--eval", "");
-// --frames：采样帧数（默认 240）；软件 GL 下很重的场景（剖视）用 40 帧，免得一次 CDP 调用超过 90 s
+// --frames：采样帧数（默认 240）；软件 GL 下很重的场景（剖视）用 15～40 帧，免得一次 CDP 调用超过 90 s（或用 --run-timeout 秒放宽）
 const FRAMES = Number(value("--frames", 240));
 const showId = value("--show", null);
 const hold = Number(value("--hold", 3));
@@ -161,6 +161,34 @@ const RUN = showId ? SHOW : `(async () => {
   const gaps = times.slice(1).map((t, i) => t - times[i]);
   return { frames: ${FRAMES}, drawMedian: sorted(ms)[${FRAMES} >> 1], drawP95: sorted(ms)[Math.floor(${FRAMES} * 0.95)], gapMedian: sorted(gaps)[(${FRAMES} - 1) >> 1], gapP95: sorted(gaps)[Math.floor((${FRAMES} - 1) * 0.95)] };
 })()`;
+/** --profile：第一轮采样 CPU 剖析，按函数自耗时（每帧 ms）列前 18 个，找每帧脚本花在哪。 */
+function hotspots(prof, frames) {
+  const self = new Map();
+  const byId = new Map(prof.nodes.map((n) => [n.id, n]));
+  prof.samples.forEach((sample, i) => {
+    const n = byId.get(sample);
+    const f = n.callFrame;
+    const key = `${f.functionName || "(anon)"} ${f.url.split("/").pop().slice(0, 24)}:${f.lineNumber + 1}`;
+    self.set(key, (self.get(key) ?? 0) + (prof.timeDeltas[i] ?? 0) / 1000);
+  });
+  const top = [...self.entries()].sort((a, b) => b[1] - a[1]).slice(0, 18);
+  for (const [k, ms] of top) console.log(`  ${(ms / frames).toFixed(3).padStart(8)} ms/frame  ${k}`);
+  // 含子调用的耗时：引擎里有名字的函数（页面内联脚本里、不在 three 压缩段的）
+  const parent = new Map();
+  for (const n of prof.nodes) for (const c of n.children ?? []) parent.set(c, n.id);
+  const incl = new Map();
+  prof.samples.forEach((sample, i) => {
+    const seen = new Set();
+    for (let id = sample; id !== undefined; id = parent.get(id)) {
+      const f = byId.get(id).callFrame;
+      if (!f.functionName || f.url === "" || seen.has(f.functionName)) continue;
+      seen.add(f.functionName);
+      incl.set(f.functionName, (incl.get(f.functionName) ?? 0) + (prof.timeDeltas[i] ?? 0) / 1000);
+    }
+  });
+  const named = [...incl.entries()].filter(([k]) => k.length > 3).sort((a, b) => b[1] - a[1]).slice(0, 24);
+  console.log("  inclusive: " + named.map(([k, ms]) => `${k} ${(ms / frames).toFixed(2)}`).join(" · "));
+}
 const metrics = async () => Object.fromEntries((await send("Performance.getMetrics")).result.metrics.map((m) => [m.name, m.value]));
 const runs = [];
 // 转台测量的前置（如打开剖视、加载内部模块）放在计时窗外
@@ -168,9 +196,16 @@ if (pre && !showId) await evaluate(`(async () => { ${pre} })()`, 240000);
 for (let r = 0; r < Number(value("--runs", showId ? 1 : 3)); r++) {
   // 起点准备在计时窗外；不会让悬停 / 前飞的前置演出污染当前动作的脚本时间。
   if (showId) await evaluate(`__arcseq.origin(${JSON.stringify(origin)})`);
+  const profiling = argv.includes("--profile") && r === 0;
+  if (profiling) {
+    await send("Profiler.enable");
+    await send("Profiler.setSamplingInterval", { interval: 200 });
+    await send("Profiler.start");
+  }
   const before = await metrics();
-  const result = await evaluate(RUN, showId ? (showLimit + hold + 30) * 1000 : 90000);
+  const result = await evaluate(RUN, showId ? (showLimit + hold + 30) * 1000 : Number(value("--run-timeout", 90)) * 1000);
   const after = await metrics();
+  if (profiling) hotspots((await send("Profiler.stop")).result.profile, result.frames);
   const per = (key) => ((after[key] - before[key]) * 1000) / result.frames;
   runs.push({ ...result, task: per("TaskDuration"), script: per("ScriptDuration") });
 }

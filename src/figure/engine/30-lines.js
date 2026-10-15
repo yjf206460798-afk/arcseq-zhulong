@@ -137,14 +137,23 @@
     return segs;
   }
 
-  // 每帧在 JS 里按当前视向给每条边定级（外轮廓 / 一级结构 / 次级工艺 / 不画），只把要画的段写进动态缓冲交给 GPU。
-  // 着色器只做屏幕空间加宽与抗锯齿；投影矩阵每帧算好一次传进去。
+  // 定级在着色器里做（R4 起，原来每帧在 JS 里逐条判断，剖视时 1300 多个内部件的边在手机上要 25 ms）：每条边一个实例，
+  // 带两侧面法线与边类；顶点着色器按当前视向（每层一个 uView）判出 外轮廓 / 一级结构 / 次级工艺 / 不画，不画的裁到视锥外。
+  // 着色器另做屏幕空间加宽与抗锯齿；投影矩阵每帧算好一次传进去。
   const LINE_VERT = `
     attribute vec3 aA;
     attribute vec3 aB;
+    attribute vec3 aN1;
+    attribute vec3 aN2;
+    attribute float aKind;
     attribute float aWeight;
     attribute float aU;
-    uniform float uClass;
+    uniform vec3 uView;
+    uniform float uCap;
+    uniform float uDemote;
+    uniform float uLow;
+    uniform float uAccent;
+    uniform float uCreaseDown;
     uniform mat4 uPVM;
     uniform vec2 uRes;
     uniform vec3 uWidth;
@@ -157,9 +166,25 @@
     varying float vU;
     varying float vSide;
     void main() {
-      float aClass = uClass;
+      // 边类（KIND）：0 缓边（只在轮廓处画）、1 折边、2 蒙皮组接缝、3 一侧面的边、4 分割线 / 口盖线
+      float f1 = dot(aN1, uView);
+      float f2 = dot(aN2, uView);
+      float c = 0.0;
+      if (aKind > 3.5) c = (uLow < 0.5 && f1 > 0.02) ? 3.0 : 0.0;
+      else if (aKind > 2.5) c = f1 > 0.0 ? (uAccent > 0.5 ? 1.0 : (uCreaseDown > 0.5 ? 3.0 : 2.0)) : 0.0;
+      else if (f1 * f2 < 0.0) c = uDemote > 0.5 ? 2.0 : 1.0;
+      else if (aKind > 0.5 && (f1 > 0.0 || f2 > 0.0)) c = uCreaseDown > 0.5 ? 3.0 : 2.0;
+      if (c > 0.5 && uCap > 0.5) c = max(c, uCap);
+      vClass = c;
       vSide = mix(aA, aB, position.x).y;
-      vWeight = aClass < 1.5 ? 1.0 : aWeight;
+      vWeight = c < 1.5 ? 1.0 : aWeight;
+      vU = aU;
+      if (c < 0.5) {
+        gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+        vDist = 0.0;
+        vHalf = 0.0;
+        return;
+      }
       vec4 ca = uPVM * vec4(aA, 1.0);
       vec4 cb = uPVM * vec4(aB, 1.0);
       vec2 sa = ca.xy * 0.5 * uRes;
@@ -168,19 +193,17 @@
       float len = length(d);
       d = len > 1e-6 ? d / len : vec2(1.0, 0.0);
       vec2 perp = vec2(-d.y, d.x);
-      float w = aClass < 1.5 ? uWidth.x : aClass < 2.5 ? uWidth.y : uWidth.z;
+      float w = c < 1.5 ? uWidth.x : c < 2.5 ? uWidth.y : uWidth.z;
       float halfW = 0.5 * w + 1.0;
       vec2 corner = position.xy;
       // 段与段首尾相接、不外伸：线条半透明时外伸部分会叠出一串亮珠
-      vec2 s = mix(sa, sb, corner.x) + perp * corner.y * halfW;
-      vec4 c = mix(ca, cb, corner.x);
-      c.xy = s / (0.5 * uRes);
-      c.z -= aClass < 1.5 ? uContourBias : uBias;
-      gl_Position = c;
+      vec2 sc = mix(sa, sb, corner.x) + perp * corner.y * halfW;
+      vec4 cc = mix(ca, cb, corner.x);
+      cc.xy = sc / (0.5 * uRes);
+      cc.z -= c < 1.5 ? uContourBias : uBias;
+      gl_Position = cc;
       vDist = corner.y * halfW;
       vHalf = 0.5 * w;
-      vClass = aClass;
-      vU = mix(aU, aU, corner.x);
     }`;
   const LINE_FRAG = `
     varying float vDist;
@@ -201,10 +224,12 @@
     uniform float uGlowPass;
     uniform vec3 uGlowColor;
     uniform float uCut;
+    uniform float uDepthFade;
     varying float vSide;
     void main() {
       // 剖视：cut 层切掉剖切面近侧（零件坐标 y > 0）
       if (uCut > 0.5 && vSide > 0.0015) discard;
+      if (vHalf <= 0.0) discard;
       // 覆盖率 = 像素（宽 1）与线（宽 2·vHalf）在法向上的重叠长度：一维盒式滤波的精确积分。细于 1 像素的线落在两个像素之间时，
       // 两个像素的覆盖率之和恒等于线宽——线转动时亮度不随亚像素位置起伏（FIG.01 的近似式在 0.42 px 线上有约 ±15% 的闪）
       float cover = clamp(min(vDist + 0.5, vHalf) - max(vDist - 0.5, -vHalf), 0.0, 1.0);
@@ -222,40 +247,39 @@
         gl_FragColor = vec4(col, cover * alpha * k);
         return;
       }
+      // 剖视的远近分档：离剖切面越远（零件坐标 −y）线越淡
+      alpha *= 1.0 - 0.5 * uDepthFade * smoothstep(0.05, 0.55, -vSide);
       gl_FragColor = vec4(col, cover * alpha * vWeight);
     }`;
   const STYLE = DATA.lines;
-  const QUAD = new THREE.Float32BufferAttribute([0, -1, 0, 1, -1, 0, 1, 1, 0, 0, -1, 0, 1, 1, 0, 0, 1, 0], 3);
+  // 四个角 + 索引（顶点缓存复用，每条边 4 次顶点着色而不是 6 次；剖视时几十万条边，顶点量是 GPU 的大头）
+  const QUAD = new THREE.Float32BufferAttribute([0, -1, 0, 1, -1, 0, 1, 1, 0, 0, 1, 0], 3);
+  const QUAD_INDEX = new THREE.Uint16BufferAttribute([0, 1, 2, 0, 2, 3], 1);
   const lineShared = { uGlowPass: { value: 0 } };
   const lineCut = { value: 0 };
+  /** 剖视时线条按离剖切面远近变淡（与 10-materials 的 uDepthFade 同开同关）。 */
+  const lineDepthFade = { value: 0 };
   /** 画法对线条的影响：B（metal）线条降一级（各级不透明度乘 DATA.metal.lines）；后加载的模块线层也按当前画法建。 */
-  const lineLook = { levels: DATA.look === "metal" ? DATA.metal.lines : [1, 1, 1] };
+  /** B 的线：外轮廓保留浅色，结构线与分割线改成深色细缝（浅色金属面上读成刻出来的缝）；颜色 / 不透明度在 DATA.metal。 */
+  const metalLines = () => ({ levels: DATA.metal.lines, color: DATA.metal.lineColor ?? null, alpha: DATA.metal.lineAlpha ?? null });
+  const drawingLines = () => ({ levels: [1, 1, 1], color: null, alpha: null });
+  const lineLook = DATA.look === "metal" ? metalLines() : drawingLines();
   const lineLayers = [];
   function lineLayer(list, parent, { style = STYLE, accent = false } = {}) {
     const count = list.kind.length;
-    const src = { n1: Float32Array.from(list.n1), n2: Float32Array.from(list.n2), kind: Uint8Array.from(list.kind) };
-    const g = new THREE.BufferGeometry();
-    const corner = new Float32Array(count * 18);
-    const A = new Float32Array(count * 18);
-    const B = new Float32Array(count * 18);
-    const Wt = new Float32Array(count * 6);
-    const Uu = new Float32Array(count * 6);
-    for (let i = 0; i < count; i++) {
-      corner.set(QUAD.array, i * 18);
-      for (let v = 0; v < 6; v++) {
-        A.set(list.a.slice(i * 3, i * 3 + 3), i * 18 + v * 3);
-        B.set(list.b.slice(i * 3, i * 3 + 3), i * 18 + v * 3);
-      }
-      Wt.fill(list.weight[i], i * 6, i * 6 + 6);
-      Uu.fill(list.u[i] ?? 0, i * 6, i * 6 + 6);
-    }
-    g.setAttribute("position", new THREE.BufferAttribute(corner, 3));
-    g.setAttribute("aA", new THREE.BufferAttribute(A, 3));
-    g.setAttribute("aB", new THREE.BufferAttribute(B, 3));
-    g.setAttribute("aWeight", new THREE.BufferAttribute(Wt, 1));
-    g.setAttribute("aU", new THREE.BufferAttribute(Uu, 1));
-    const index = new THREE.BufferAttribute(new Uint32Array(Math.max(1, count * 6)), 1).setUsage(THREE.DynamicDrawUsage);
-    g.setIndex(index);
+    // 每条边一个实例：基础几何是一个四边形（4 顶点 + 索引），端点、两侧面法线、边类、权重、沿线位置是实例属性
+    const g = new THREE.InstancedBufferGeometry();
+    g.setAttribute("position", QUAD);
+    g.setIndex(QUAD_INDEX);
+    const inst = (data, size) => new THREE.InstancedBufferAttribute(data, size);
+    g.setAttribute("aA", inst(Float32Array.from(list.a), 3));
+    g.setAttribute("aB", inst(Float32Array.from(list.b), 3));
+    g.setAttribute("aN1", inst(Float32Array.from(list.n1), 3));
+    g.setAttribute("aN2", inst(Float32Array.from(list.n2), 3));
+    g.setAttribute("aKind", inst(Float32Array.from(list.kind), 1));
+    g.setAttribute("aWeight", inst(Float32Array.from(list.weight), 1));
+    g.setAttribute("aU", inst(Float32Array.from(list.u, (x) => x ?? 0), 1));
+    g.instanceCount = count;
     const uniforms = {
       ...lineShared,
       uPVM: { value: new THREE.Matrix4() },
@@ -263,8 +287,8 @@
       uWidth: { value: new THREE.Vector3() },
       uBias: { value: (2 * STYLE.bias) / (camera.far - camera.near) },
       uContourBias: { value: (2 * STYLE.contourBias) / (camera.far - camera.near) },
-      uColor: { value: style.color.map(rgb) },
-      uAlpha: { value: new THREE.Vector3(...style.alpha) },
+      uColor: { value: (!accent && lineLook.color ? lineLook.color : style.color).map(rgb) },
+      uAlpha: { value: new THREE.Vector3(...(!accent && lineLook.alpha ? lineLook.alpha : style.alpha)) },
       uTint: { value: new THREE.Color() },
       uTintMix: { value: 0 },
       uScale: { value: 1 },
@@ -275,24 +299,26 @@
       uIdle: { value: accent ? accent.idle : 0 },
       uGlowColor: { value: rgb(accent ? accent.glow : "#000000") },
       uCut: { value: 0 },
+      uDepthFade: lineDepthFade,
+      uView: { value: new THREE.Vector3(1, 0, 0) },
+      uCap: { value: 0 },
+      uDemote: { value: 0 },
+      uLow: { value: 0 },
+      uCreaseDown: { value: 0 },
     };
-    // 先画次级、再一级、外轮廓最后盖在上面
-    const LEVEL = [LINE.secondary, LINE.structure, LINE.contour];
-    const mats = LEVEL.map((cls) => new THREE.ShaderMaterial({ vertexShader: LINE_VERT, fragmentShader: LINE_FRAG, transparent: true, depthWrite: false, uniforms: { ...uniforms, uClass: { value: cls } } }));
-    const mesh = new THREE.Mesh(g, mats);
+    const mat = new THREE.ShaderMaterial({ vertexShader: LINE_VERT, fragmentShader: LINE_FRAG, transparent: true, depthWrite: false, uniforms });
+    const mesh = new THREE.Mesh(g, mat);
     mesh.frustumCulled = false;
     mesh.renderOrder = accent ? 2.1 : 2;
     parent.add(mesh);
-    const view = new THREE.Vector3();
     const inverse = new THREE.Matrix4();
-    const cls = new Uint8Array(count);
-    const seen = { x: 0, y: 0, z: 0, demote: null, low: null, force: true };
     let contourBase = STYLE.contourBias;
     const layer = {
       mesh,
       accent: !!accent,
       demote: false,
       cap: 0,
+      creaseDown: false,
       width: style.width,
       contourBias(m) {
         contourBase = m;
@@ -303,6 +329,11 @@
       levels(a, b, c) {
         uniforms.uLevel.value.set(a, b, c);
       },
+      /** 画法切换：三级线的颜色与不透明度（null = 回到线层自己的样式）。 */
+      colors(color, alpha) {
+        uniforms.uColor.value = (color ?? style.color).map(rgb);
+        uniforms.uAlpha.value.set(...(alpha ?? style.alpha));
+      },
       /** 剖视时切掉 y > 0 一侧（只对 cut 层）。 */
       clip(on) {
         uniforms.uCut.value = on ? 1 : 0;
@@ -311,58 +342,22 @@
         uniforms.uTintMix.value = hex ? k : 0;
         if (hex) uniforms.uTint.value.set(hex);
       },
-      /** 视向换到零件所在坐标系，逐条定级，按级别写索引。 */
-      update(force = false) {
+      /** 视向换到零件所在坐标系交给着色器（定级在 GPU 上），投影矩阵与深度偏移每帧更新。 */
+      update() {
         // 线条的深度偏移随取景放大缩小（特写 14× 时 2 cm 的偏移会让线透过贴着蒙皮的零件露出来）
         const k = 1 / Math.max(camera.zoom, 1);
         uniforms.uBias.value = (2 * Math.max(STYLE.bias * k, 0.0015)) / (camera.far - camera.near);
         uniforms.uContourBias.value = (2 * Math.max(contourBase * k, 0.01)) / (camera.far - camera.near);
-        const demote = this.demote;
         uniforms.uPVM.value.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(mesh.matrixWorld);
-        view.copy(VIEW).applyMatrix4(inverse.copy(mesh.matrixWorld).invert().setPosition(0, 0, 0)).normalize();
-        if (!force && !seen.force && lowQuality() === seen.low && demote === seen.demote && view.x * seen.x + view.y * seen.y + view.z * seen.z > 1 - 6e-6) return;
-        seen.x = view.x;
-        seen.y = view.y;
-        seen.z = view.z;
-        seen.demote = demote;
-        seen.low = lowQuality();
-        seen.force = false;
-        const { n1, n2, kind } = src;
-        const n = [0, 0, 0];
-        for (let i = 0; i < count; i++) {
-          const j = i * 3;
-          const f1 = n1[j] * view.x + n1[j + 1] * view.y + n1[j + 2] * view.z;
-          let c = 0;
-          if (kind[i] === KIND.secondary) c = !lowQuality() && f1 > 0.02 ? LINE.secondary : 0;
-          else if (kind[i] === KIND.boundary) c = f1 > 0 ? (accent ? LINE.contour : LINE.structure) : 0;
-          else {
-            const f2 = n2[j] * view.x + n2[j + 1] * view.y + n2[j + 2] * view.z;
-            if (f1 * f2 < 0) c = demote ? LINE.structure : LINE.contour;
-            else if (kind[i] !== KIND.smooth && (f1 > 0 || f2 > 0)) c = LINE.structure;
-          }
-          if (c && this.cap) c = Math.max(c, this.cap);
-          cls[i] = c;
-          if (c) n[3 - c]++;
-        }
-        const at = [0, n[0], n[0] + n[1]];
-        const I = index.array;
-        for (let i = 0; i < count; i++) {
-          if (!cls[i]) continue;
-          const l = 3 - cls[i];
-          for (let v = 0, o = at[l]++ * 6, base = i * 6; v < 6; v++) I[o + v] = base + v;
-        }
-        const total = n[0] + n[1] + n[2];
-        index.clearUpdateRanges();
-        index.addUpdateRange(0, total * 6);
-        index.needsUpdate = true;
-        g.clearGroups();
-        for (let l = 0, start = 0; l < 3; start += n[l] * 6, l++) if (n[l]) g.addGroup(start, n[l] * 6, l);
-        g.setDrawRange(0, total * 6);
+        uniforms.uView.value.copy(VIEW).applyMatrix4(inverse.copy(mesh.matrixWorld).invert().setPosition(0, 0, 0)).normalize();
+        uniforms.uCap.value = this.cap;
+        uniforms.uDemote.value = this.demote ? 1 : 0;
+        uniforms.uLow.value = lowQuality() ? 1 : 0;
+        uniforms.uCreaseDown.value = this.creaseDown ? 1 : 0;
       },
       resize(w, h, ratio) {
         uniforms.uRes.value.set(w * ratio, h * ratio);
         uniforms.uWidth.value.set(...style.width.map((x) => x * ratio));
-        seen.force = true;
       },
     };
     lineLayers.push(layer);
@@ -377,13 +372,13 @@
     const slots = new Map();
     const made = [];
     // lineLevel "secondary"：这一层所有边一律降为次级线（细密的重复件：鳞片瓦、虹膜遮片），单独一层
-    const slot = (group, cap = 0, show = null, cut = false, glass = false) => {
-      const key = `${group}|${cap}|${show ?? ""}|${cut ? 1 : 0}|${glass ? 1 : 0}`;
-      if (!slots.has(key)) slots.set(key, { group, cap, show, cut, glass, parts: [], seams: [] });
+    const slot = (group, cap = 0, show = null, cut = false, glass = false, creaseDown = false) => {
+      const key = `${group}|${cap}|${show ?? ""}|${cut ? 1 : 0}|${glass ? 1 : 0}|${creaseDown ? 1 : 0}`;
+      if (!slots.has(key)) slots.set(key, { group, cap, show, cut, glass, creaseDown, parts: [], seams: [] });
       return slots.get(key);
     };
-    // 玻璃件的线单独一层（剖视时转青色）
-    for (const part of parts) slot(keyOf(part), part.lineLevel === "secondary" ? LINE.secondary : part.lineLevel === "structure" ? LINE.structure : 0, part.show ?? null, !!part.cut, !!part.glass).parts.push(part);
+    // 玻璃件的线单独一层（剖视时转青色）；剖视内部件（module interior、lineLevel structure）：外轮廓 L1、折边降到 L2（R4：内部次要线降一级）
+    for (const part of parts) slot(keyOf(part), part.lineLevel === "secondary" ? LINE.secondary : part.lineLevel === "structure" ? LINE.structure : 0, part.show ?? null, !!part.cut, !!part.glass, part.module === "interior" && part.lineLevel === "structure").parts.push(part);
     const accents = new Map();
     for (const seam of seams ?? []) {
       const key = groupKey(seam.joint);
@@ -393,7 +388,7 @@
         accents.get(k).seams.push(seam);
       } else slot(key, 0, seam.show ?? null, seam.cut ?? true).seams.push(seam);
     }
-    for (const [key, { group, cap, show, cut, glass, parts: ps, seams: ss }] of slots) {
+    for (const [key, { group, cap, show, cut, glass, creaseDown, parts: ps, seams: ss }] of slots) {
       const segs = buildLines(ps, ss);
       if (!segs.kind.length) continue;
       const layer = lineLayer(segs, groupObj(group));
@@ -402,6 +397,7 @@
       layer.show = show;
       layer.cut = cut;
       layer.glass = glass;
+      layer.creaseDown = !!creaseDown;
       groupLines.set(key, layer);
       airLayers.push(layer);
       made.push(layer);

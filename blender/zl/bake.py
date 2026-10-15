@@ -76,6 +76,11 @@ def vertex_ao(objs, samples=64, hide=()):
         _select(loose, loose[0])
         bpy.ops.object.bake(type="AO")
     sc.render.bake.target = "IMAGE_TEXTURES"
+    # 带细节贴图的蒙皮（skin = "skin"，即 nose.body）不用顶点 AO：切面是几个大三角形，零件旁一个顶点被压暗，
+    # 暗色会沿长三角形拉成一道道条纹（R3 B 画法右侧面板的“反射条纹”）；它的 AO 由 detail_texture 逐纹素烘
+    for o in meshes:
+        if o.get("skin") == "skin":
+            o.data.color_attributes["ao"].data.foreach_set("color", [1.0] * (4 * len(o.data.vertices)))
     for o in voids:
         o.hide_render = False
     for o in hide:

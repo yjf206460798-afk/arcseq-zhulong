@@ -25,7 +25,7 @@ from kit.parts import box, cylinder, ellipsoid, hull, lathe, merge, new_object, 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MH = os.path.join(os.path.dirname(HERE), "assets", "makehuman")
 HEIGHT = 1.74  # 第 50 百分位左右的成年人
-SUIT = 0.005  # 服装离体表
+SUIT = 0.007  # 服装离（平滑后的）体表
 X, Y, Z = np.array([1.0, 0, 0]), np.array([0, 1.0, 0]), np.array([0, 0, 1.0])
 
 
@@ -341,84 +341,264 @@ def piece(name, Q, faces, keep, material, props):
     return mesh_object(name, Q[ids], [[remap[i] for i in f] for f in F], material, props)
 
 
+SEG_CODE = {"torso": 0, "head": 1, "thigh": 2, "shin": 3, "foot": 4, "uarm": 5, "farm": 6, "hand": 7}
+SMOOTH_W = {"torso": 1.0, "thigh": 0.9, "uarm": 0.9, "farm": 0.7, "shin": 0.7}
+
+
+def smooth_body(P, faces, seg, shrink_iters=40, restore_iters=80):
+    """去掉解剖细节、保留大体积（服装壳由它外扩，不透出肌肉）：
+    ① 按骨段权重做拉普拉斯平滑（躯干最强，胸肌、腹肌、臀部抹平；四肢减弱；手、脚、头不动），会整体缩一点；
+    ② 每个顶点沿平滑后的法线缩了多少，把这张“缩量”场本身再平滑很多轮（只剩大尺度），沿法线加回去——
+       大体积回来了，局部的鼓包（肌肉）没有回来。"""
+    E = set()
+    for f in faces:
+        for x, y in zip(f, f[1:] + f[:1]):
+            E.add((min(x, y), max(x, y)))
+    E = np.array(sorted(E))
+    w = np.array([SMOOTH_W.get(s.split(".")[0], 0.0) for s in seg])
+    body = np.zeros(len(P), bool)
+    body[E.ravel()] = True
+    w = np.where(body, w, 0.0)[:, None]
+    cnt = np.zeros(len(P))
+    np.add.at(cnt, E[:, 0], 1)
+    np.add.at(cnt, E[:, 1], 1)
+    cnt = np.maximum(cnt, 1)[:, None]
+
+    def avg(X):
+        acc = np.zeros_like(X)
+        np.add.at(acc, E[:, 0], X[E[:, 1]])
+        np.add.at(acc, E[:, 1], X[E[:, 0]])
+        return acc / cnt
+
+    Q = P.copy()
+    for _ in range(shrink_iters):
+        Q = Q + w * 0.5 * (avg(Q) - Q)
+    Nq = vertex_normals(Q, faces)
+    D = ((P - Q) * Nq).sum(1)[:, None]  # 沿法线缩了多少（正 = 往里缩）
+    for _ in range(restore_iters):
+        D = D + 0.6 * (avg(D) - D)
+    return Q + Nq * np.where(body[:, None], D, 0.0)
+
+
+def plane_segments(V, faces, fnormals, sel, p, n, lift=0.0015):
+    """网格与平面 (p, n) 的交线：sel 里的每个面与平面相交的那一段（两点），点沿面法线抬 lift。返回串好的折线 [(点列, 法线列)]。"""
+    segs = []
+    for fi in sel:
+        f = faces[fi]
+        d = [(V[i] - p).dot(n) for i in f]
+        pts = []
+        for k in range(len(f)):
+            a, b = f[k], f[(k + 1) % len(f)]
+            da, db = d[k], d[(k + 1) % len(f)]
+            if (da < 0) != (db < 0) and abs(da - db) > 1e-12:
+                t = da / (da - db)
+                pts.append(V[a] + (V[b] - V[a]) * t)
+        if len(pts) == 2:
+            nn = fnormals[fi]
+            segs.append((pts[0] + nn * lift, pts[1] + nn * lift, nn))
+    # 首尾相接的段串成折线
+    key = lambda q: tuple(np.round(q, 5))  # noqa: E731
+    ends = {}
+    for k, (a, b, _) in enumerate(segs):
+        ends.setdefault(key(a), []).append(k)
+        ends.setdefault(key(b), []).append(k)
+    used_ = set()
+    lines = []
+    for k0 in range(len(segs)):
+        if k0 in used_:
+            continue
+        used_.add(k0)
+        a, b, nn = segs[k0]
+        chain, norms = [a, b], [nn, nn]
+        for forward in (True, False):
+            while True:
+                tip = chain[-1] if forward else chain[0]
+                nxt = [k for k in ends.get(key(tip), []) if k not in used_]
+                if not nxt:
+                    break
+                k = nxt[0]
+                used_.add(k)
+                a2, b2, n2 = segs[k]
+                q = b2 if key(a2) == key(tip) else a2
+                if forward:
+                    chain.append(q)
+                    norms.append(n2)
+                else:
+                    chain.insert(0, q)
+                    norms.insert(0, n2)
+        lines.append((chain, norms))
+    return lines
+
+
+def inscription(name, text, centre, xdir, ydir, height, props, material="inscription"):
+    """胸前小字：Blender 文字转网格（文泉驿正黑，只取字形），按 (xdir, ydir) 贴在 centre 处，字高 height。"""
+    cu = bpy.data.curves.new(name, "FONT")
+    cu.body = text
+    cu.font = bpy.data.fonts.load(FONT, check_existing=True)
+    cu.size = height / 0.72  # 字体的字面高约是字号的 0.72
+    cu.align_x = "CENTER"
+    cu.align_y = "CENTER"
+    cu.extrude = 0.0006
+    tmp = bpy.data.objects.new(name + ".tmp", cu)
+    bpy.context.scene.collection.objects.link(tmp)
+    dg = bpy.context.evaluated_depsgraph_get()
+    me = bpy.data.meshes.new_from_object(tmp.evaluated_get(dg))
+    bpy.data.objects.remove(tmp)
+    bpy.data.curves.remove(cu)
+    xd, yd = Vector(xdir).normalized(), Vector(ydir).normalized()
+    zd = xd.cross(yd).normalized()
+    yd = zd.cross(xd).normalized()
+    M = Matrix((xd, yd, zd)).transposed()
+    for v in me.vertices:
+        v.co = Vector(centre) + M @ v.co
+    o = bpy.data.objects.new(name, me)
+    o.data.materials.clear()
+    o.data.materials.append(bpy.data.materials.get(material) or bpy.data.materials.new(material))
+    bpy.context.scene.collection.objects.link(o)
+    for k, v in {**props, "lineLevel": "secondary"}.items():
+        o[k] = v
+    return o, finish(o, bevel=0.0, angle=40)
+
+
+FONT = "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"
+
+
 def build(seat, props):
-    """seat：srp、back、back_n、pan_h、knee、feet、foot_dir、grips、hand_dir、knuckles、palm、seat_side（腰带扣点）。返回 (零件列表, 关节)。"""
-    P, faces, used, sk, wt = load()
-    rig = Rig(P, sk, wt)
-    Q, B, J = solve(rig, seat)
+    """seat：srp、back、back_n、pan_h、knee、feet、foot_dir、grips、hand_dir、knuckles、palm、seat_side（腰带扣点）。
+    返回 (零件列表, 关节, 服装接缝线)。"""
+    P0, faces, used, sk, wt = load()
+    rig = Rig(P0, sk, wt)
     dom = dominant(rig)
-    seg = [rig.seg_of.get(dom[i], "torso") if dom[i] else "torso" for i in range(len(P))]
-    # 分片按静止姿态里的平面切（接缝是直的，不跟着权重边界锯齿）：袖根、肘、腕、膝、靴口、领口；躯干与大腿一片（连体服），左右在中线分开（拉链）
+    seg = [rig.seg_of.get(dom[i], "torso") if dom[i] else "torso" for i in range(len(P0))]
+    rig.P = smooth_body(P0, faces, seg)
+    P = rig.P
+    Q, B, J = solve(rig, seat)
     ankle_z = max(rig.h("foot.L")[2], rig.h("foot.R")[2])
     neck_z = rig.h("neck02")[2]
-    arm_seg = {"uarm", "farm", "hand"}
-    leg_seg = {"thigh", "shin", "foot"}
-
-    def classify(c, sg):
-        """c：静止姿态的点；sg：该点的骨段。"""
-        if c[2] > neck_z:
-            return "head"
-        if c[2] < ankle_z + 0.16:
-            return "boot"
-        s_ = "L" if c[1] >= 0 else "R"
-        if sg.split(".")[0] in arm_seg:
-            sh, el, wr = rig.h(f"upperarm01.{s_}"), rig.h(f"lowerarm01.{s_}"), rig.h(f"wrist.{s_}")
-            if (c - wr).dot(norm(wr - el)) > 0.0:
-                return "glove"
-            if (c - el).dot(norm(wr - el)) > -0.01:
-                return "forearm"
-            if (c - sh).dot(norm(el - sh)) > 0.035:
-                return "sleeve"
-            return "torso"
-        if sg.split(".")[0] in leg_seg:
-            kn = rig.h(f"lowerleg01.{s_}")
-            return "shin" if c[2] < kn[2] - 0.04 else "torso"
-        return "torso"
-
-    kind = [classify(P[i], seg[i]) for i in range(len(P))]
     N = vertex_normals(Q, faces)
     Nr = vertex_normals(P, faces)
-    off = np.array([{"glove": 0.003, "boot": 0.009}.get(k, SUIT) for k in kind])
-    S = Q + N * off[:, None]
-    out = []
-    fk = []
+    code = np.array([SEG_CODE[s.split(".")[0]] for s in seg])
+    # —— 服装壳：整身外移 SUIT，一张连续的网格；材质边界（腕、靴口、领口）用平面真切开（切口是直的），头部与脚掌切掉 ——
+    S = Q + N * SUIT
+    ap = lambda M, v: M[0] @ v + M[1]  # noqa: E731
+    apn = lambda M, v: norm(M[0] @ v)  # noqa: E731
+    cuts = {}
+    for sd in "LR":
+        el, wr = rig.h(f"lowerarm01.{sd}"), rig.h(f"wrist.{sd}")
+        d = norm(wr - el)
+        cuts[f"wrist.{sd}"] = (ap(B[f"lowerarm01.{sd}"], wr), apn(B[f"lowerarm01.{sd}"], d), (6, 7), sd)
+        kn, an = rig.h(f"lowerleg01.{sd}"), rig.h(f"foot.{sd}")
+        up = norm(kn - an)
+        for nm, h in (("boot", 0.16), ("shoe", 0.04)):
+            t_ = (ankle_z + h - an[2]) / max(1e-6, (kn - an)[2])
+            pr = an + (kn - an) * t_
+            cuts[f"{nm}.{sd}"] = (ap(B[f"lowerleg01.{sd}"], pr), apn(B[f"lowerleg01.{sd}"], up), (3, 4), sd)
+    nk, hd = rig.h("neck01"), rig.h("head")
+    cuts["neck"] = (ap(B["neck01"], nk + norm(hd - nk) * 0.04), apn(B["neck01"], norm(hd - nk)), (0, 1), None)
+    bm = bmesh.new()
+    vmap = {}
+    for i in used:
+        vmap[i] = bm.verts.new(tuple(S[i]))
+    lay_code = bm.faces.layers.int.new("seg")
+    lay_side = bm.faces.layers.int.new("side")
     for f in faces:
-        c = P[f].mean(0)
-        ss = [seg[i] for i in f]
-        sg = max(set(ss), key=ss.count)
-        # 腋下：躯干骨段的面落在袖根平面外、且贴着上臂轴（8 cm 内）的，归袖子——接缝沿平面走
-        s_ = "L" if c[1] >= 0 else "R"
-        sh, el = rig.h(f"upperarm01.{s_}"), rig.h(f"lowerarm01.{s_}")
-        u = norm(el - sh)
-        t_ = (c - sh).dot(u)
-        if sg.split(".")[0] == "torso" and t_ > 0.035 and np.linalg.norm((c - sh) - u * t_) < 0.08 and c[2] < sh[2]:
-            sg = f"uarm.{s_}"
-        k = classify(c, sg)
-        fk.append((k, s_))
-    fk = smooth_labels(faces, fk, keep={"head", "boot"})
-    for k in ("torso", "shin", "sleeve", "forearm", "glove", "boot"):
-        for sd in "LR":
-            keep = [x == (k, sd) for x in fk]
-            if k == "boot":
-                # 靴筒用网格（踝上 4 cm 起），靴头用脚的凸包（不出脚趾），再垫一块鞋底
-                keep = [kk and P[f].mean(0)[2] > ankle_z + 0.04 for kk, f in zip(keep, faces)]
-            it = piece(f"int.pilot.{k}.{sd.lower()}", S, faces, keep, MATERIAL[k], props)
-            if it:
-                out.append(it)
+        try:
+            bf = bm.faces.new([vmap[i] for i in f])
+        except ValueError:
+            continue
+        cs = [code[i] for i in f]
+        bf[lay_code] = max(set(cs), key=cs.count)
+        bf[lay_side] = 1 if P[f, 1].mean() >= 0 else -1
+    bm.normal_update()
+    for nm, (pc, pn, codes, sd) in cuts.items():
+        sg = 0 if sd is None else (1 if sd == "L" else -1)
+        geom_f = [f for f in bm.faces if f[lay_code] in codes and (sg == 0 or f[lay_side] == sg) and (f.calc_center_median() - Vector(pc)).length < 0.22]
+        if not geom_f:
+            continue
+        geom_e = list({e for f in geom_f for e in f.edges})
+        geom_v = list({v for f in geom_f for v in f.verts})
+        bmesh.ops.bisect_plane(bm, geom=geom_f + geom_e + geom_v, dist=1e-7, plane_co=Vector(pc), plane_no=Vector(pn))
+    side_of = lambda f, nm: (f.calc_center_median() - Vector(cuts[nm][0])).dot(Vector(cuts[nm][1]))  # noqa: E731
+    cls = {}
+    dead = []
+    for f in bm.faces:
+        c, sg = f[lay_code], f[lay_side]
+        sd = "L" if sg > 0 else "R"
+        k = "suit"
+        if c in (0, 1) and side_of(f, "neck") > 0 and (f.calc_center_median() - Vector(cuts["neck"][0])).length < 0.25:
+            k = None
+        elif c == 1:
+            k = None
+        elif c in (3, 4) and side_of(f, f"shoe.{sd}") < 0:
+            k = None
+        elif c in (3, 4) and side_of(f, f"boot.{sd}") < 0:
+            k = f"boot.{sd.lower()}"
+        elif c in (6, 7) and side_of(f, f"wrist.{sd}") > 0:
+            k = f"glove.{sd.lower()}"
+        if k is None:
+            dead.append(f)
+        else:
+            cls[f] = k
+    bm.verts.index_update()
+    V = np.array([tuple(v.co) for v in bm.verts])
+    Fall = [([v.index for v in f.verts], cls[f], tuple(f.normal), f[lay_code], f[lay_side]) for f in bm.faces if f in cls]
+    bm.free()
+    out = []
+    for k, mat in (("suit", "suit"), ("glove.l", "rubber"), ("glove.r", "rubber"), ("boot.l", "rubber"), ("boot.r", "rubber")):
+        F = [f for f, kk, _, _, _ in Fall if kk == k]
+        if not F:
+            continue
+        ids = sorted({i for f in F for i in f})
+        remap = {v: n for n, v in enumerate(ids)}
+        out.append(mesh_object(f"int.pilot.{k}", V[ids], [[remap[i] for i in f] for f in F], mat, props))
+    # 靴头：脚的凸包（不出脚趾），再垫一块鞋底
     for sd in "LR":
         ids = np.array([i for i in used if P[i, 2] < ankle_z + 0.06 and (P[i, 1] >= 0) == (sd == "L")])
         shoe = Q[ids] + N[ids] * 0.012
         out.append(hull(f"int.pilot.boot.{sd.lower()}.shoe", [Vector(v.tolist()) for v in shoe[:: max(1, len(shoe) // 300)]], "rubber", props, bevel=0.006))
-        # 鞋底：脚掌最低的一圈点沿脚底法向再垫 1.5 cm
         fd = Vector(seat["foot_dir"].tolist()).normalized()
         down = Vector((fd.z, 0.0, -fd.x))
         d = shoe @ np.array(down)
         low = shoe[d > np.percentile(d, 82)]
         sole = [Vector(v.tolist()) + down * dd for v in low[:: max(1, len(low) // 60)] for dd in (0.0, 0.015)]
         out.append(hull(f"int.pilot.boot.{sd.lower()}.sole", sole, "strap", props, bevel=0.004))
+    # —— 接缝线（次级线）：服装壳与平面的交线——袖根、肘、前中拉链、腰线；平面在静止姿态里定，随所在骨段摆到位 ——
+    suitF = [(f, n_, c_, s_) for f, kk, n_, c_, s_ in Fall if kk == "suit"]
+    SF = [f for f, _, _, _ in suitF]
+    SN = [np.array(n_) for _, n_, _, _ in suitF]
+    SC = np.array([V[f].mean(0) for f in SF])
+    seams = []
+
+    def add(lines):
+        for pts, ns in lines:
+            if len(pts) >= 2:
+                seams.append({"points": [[round(float(x), 4) for x in q] for q in pts], "normals": [[round(float(x), 3) for x in q] for q in ns], "level": "secondary", "cut": False})
+
+    for sd in "LR":
+        sh, el, wr = rig.h(f"upperarm01.{sd}"), rig.h(f"lowerarm01.{sd}"), rig.h(f"wrist.{sd}")
+        u = norm(el - sh)
+        pc, pn = ap(B[f"upperarm01.{sd}"], sh + u * 0.035), apn(B[f"upperarm01.{sd}"], u)
+        ea = ap(B[f"upperarm01.{sd}"], el)
+        axis = norm(ea - pc)
+        near_arm = lambda q: np.linalg.norm((q - pc) - axis * (q - pc).dot(axis)) < 0.075  # noqa: E731
+        add(plane_segments(V, SF, SN, [i for i in range(len(SF)) if np.linalg.norm(SC[i] - pc) < 0.11 and near_arm(SC[i])], pc, pn))
+        u2 = norm(wr - el)
+        pc, pn = ap(B[f"lowerarm01.{sd}"], el + u2 * 0.02), apn(B[f"lowerarm01.{sd}"], u2)
+        add(plane_segments(V, SF, SN, [i for i in range(len(SF)) if np.linalg.norm(SC[i] - pc) < 0.08], pc, pn))
+    # 前中拉链：静止姿态的 y = 0 平面，只取躯干前面、胯以上领口以下
+    crotch = min(rig.h("upperleg01.L")[2], rig.h("upperleg01.R")[2])
+    sel = [i for i, (f, n_, c_, s_) in enumerate(suitF) if c_ == 0 and Nr[f].mean(0)[0] > 0.25 and crotch + 0.04 < P[f, 2].mean() < neck_z - 0.03]
+    add(plane_segments(V, SF, SN, sel, ap(B["spine03"], np.zeros(3) + rig.h("spine03") * np.array([1, 0, 1])), apn(B["spine03"], Y)))
+    # 腰线
+    wz = rig.h("spine05") + np.array([0, 0, 0.07])
+    sel = [i for i, (f, n_, c_, s_) in enumerate(suitF) if c_ == 0 and abs(P[f, 2].mean() - wz[2]) < 0.05]
+    add(plane_segments(V, SF, SN, sel, ap(B["spine05"], wz), apn(B["spine05"], Z)))
     # —— 外层贴片：护膝、大腿 / 小腿 / 腹部分块气囊（比服装再高 8～16 mm）——
     face_c = np.array([P[f].mean(0) for f in faces])
     face_n = np.array([norm(Nr[f].sum(0)) for f in faces])
+    face_code = [max(set(code[f].tolist()), key=code[f].tolist().count) for f in faces]
+    face_side = ["L" if c[1] >= 0 else "R" for c in face_c]
+    fk = [(c, sd) for c, sd in zip(face_code, face_side)]
 
     def along(i, a, b):
         d = b - a
@@ -430,24 +610,24 @@ def build(seat, props):
         hip, ank = rig.h(f"upperleg01.{sd}"), rig.h(f"foot.{sd}")
         pads.append((f"kneepad.{sd}", 0.02, lambda i, knee=knee: np.linalg.norm(face_c[i] - knee) < 0.065 and face_n[i][0] > 0.2))
         for k, (t0, t1) in enumerate(((0.22, 0.47), (0.5, 0.78))):
-            pads.append((f"bladder.thigh{k}.{sd}", 0.012, lambda i, t0=t0, t1=t1, hip=hip, knee=knee, sd=sd: fk[i] == ("torso", sd) and face_n[i][0] > 0.35 and t0 < along(i, hip, knee) < t1 and np.linalg.norm(np.cross(face_c[i] - hip, norm(knee - hip))) < 0.11))
-        pads.append((f"bladder.shin.{sd}", 0.011, lambda i, knee=knee, ank=ank, sd=sd: fk[i] == ("shin", sd) and face_n[i][0] > 0.3 and 0.22 < along(i, knee, ank) < 0.7))
+            pads.append((f"bladder.thigh{k}.{sd}", 0.012, lambda i, t0=t0, t1=t1, hip=hip, knee=knee, sd=sd: fk[i] in ((0, sd), (2, sd)) and face_n[i][0] > 0.35 and t0 < along(i, hip, knee) < t1 and np.linalg.norm(np.cross(face_c[i] - hip, norm(knee - hip))) < 0.11))
+        pads.append((f"bladder.shin.{sd}", 0.011, lambda i, knee=knee, ank=ank, sd=sd: fk[i] == (3, sd) and face_n[i][0] > 0.3 and 0.22 < along(i, knee, ank) < 0.7))
         w0, w1 = rig.h("spine05")[2] + 0.02, rig.h("spine03")[2] - 0.01
-        pads.append((f"bladder.abdomen.{sd}", 0.012, lambda i, w0=w0, w1=w1, sd=sd: fk[i][0] == "torso" and fk[i][1] == sd and face_n[i][0] > 0.55 and w0 < face_c[i][2] < w1 and abs(face_c[i][1]) > 0.012))
+        pads.append((f"bladder.abdomen.{sd}", 0.012, lambda i, w0=w0, w1=w1, sd=sd: fk[i] == (0, sd) and face_n[i][0] > 0.55 and w0 < face_c[i][2] < w1 and abs(face_c[i][1]) > 0.012))
     for name, extra, pred in pads:
         keep = [pred(i) for i in range(len(faces))]
         it = piece(f"int.pilot.{name.lower()}", Q + N * (SUIT + extra), faces, keep, "pad" if name.startswith("bladder") else "rubber", props)
         if it:
             out.append(it)
     # 脊背暗朱红细线（未点亮）
-    keep = [fk[i][0] == "torso" and face_n[i][0] < -0.5 and abs(face_c[i][1]) < 0.011 and rig.h("spine05")[2] < face_c[i][2] < rig.h("neck01")[2] for i in range(len(faces))]
+    keep = [fk[i][0] == 0 and face_n[i][0] < -0.5 and abs(face_c[i][1]) < 0.011 and rig.h("spine05")[2] < face_c[i][2] < rig.h("neck01")[2] for i in range(len(faces))]
     it = piece("int.pilot.spine", Q + N * (SUIT + 0.003), faces, keep, "vermilion", props)
     if it:
         out.append(it)
 
     # —— 挽具：沿体表的带子（锚点在静止姿态里找体表顶点，摆姿后沿法线外移）——
-    torso_ids = np.array([i for i in used if kind[i] == "torso"])
-    thigh_ids = np.array([i for i in used if kind[i] == "torso" and seg[i].startswith("thigh")])
+    torso_ids = np.array([i for i in used if code[i] == 0 and P[i, 2] < neck_z])
+    thigh_ids = np.array([i for i in used if code[i] == 2])
 
     def vid(y, z, front=True, ids=torso_ids):
         """静止姿态里 (y, z) 处躯干前（后）表面的顶点号。"""
@@ -521,12 +701,20 @@ def build(seat, props):
     out.append(box("int.pilot.umbilical", port, (0.06, 0.04, 0.07), material="avionics", face="+y", panel=False, handles=False, plugs=0, ears=False, corner_bolts=True, props=props))
     out.append(pipe("int.pilot.hose", [port + Vector((0, 0.02, -0.03)), port + Vector((-0.08, 0.08, -0.12)), Vector(seat["seat_side"]["L"]) + Vector((0.12, 0.0, 0.05))], 0.014, bend=0.06, sides=10, material="cable", props=props))
 
-    # —— 头盔 ——————————————————————————————————————————————————————————
-    head_ids = np.array([i for i in used if kind[i] == "head"])
+    # 胸前铭文「銜燭」（左胸上方，繁体，浅灰小字；从正面读，字行朝驾驶员的左手方向）
+    Gc = B["spine02"][0]
+    anchor = surf(0.04, chest + 0.06, out_=0.0)
+    i0 = used[np.argmin(np.linalg.norm(Q[used] - np.array(anchor), axis=1))]
+    nrm = Vector(N[i0].tolist())
+    out.append(inscription("int.pilot.inscription", "銜燭", anchor + nrm * 0.004, Vector((Gc @ Y).tolist()), Vector((Gc @ Z).tolist()), 0.018, props))
+
+    # —— 头盔（DESIGN 9.1.1 重做）：蛋形盔壳 + 盔顶前凸的眉骨（与机身眉骨同一语言）+ 窄面罩（透明，睁眼态）+ 面罩上沿收起的
+    # 暗琥珀遮光面罩 + 下颌护条 + 盔脊 + 两侧面罩铰链 + 颈环。各件分开建、材质分开，转台全景里也读得出来 ——
+    head_ids = np.array([i for i in used if code[i] == 1 and P[i, 2] > neck_z])
     G, t = B["head"]
     f, l, u = (Vector(G @ v) for v in (X, Y, Z))
     c = Vector(Q[head_ids].mean(0)) + u * 0.02 - f * 0.005
-    R = (0.134, 0.124, 0.144)
+    R = (0.138, 0.126, 0.146)
     axes = (f, l, u)
     out.append(ellipsoid("int.pilot.helmet", c, R, axes, u=40, v=20, material="helmet", props=props))
 
@@ -534,33 +722,43 @@ def build(seat, props):
         a, e = math.radians(az), math.radians(el)
         return c + f * (R[0] * k * math.cos(e) * math.cos(a)) + l * (R[1] * k * math.cos(e) * math.sin(a)) + u * (R[2] * k * math.sin(e))
 
-    # 窄面罩（透明，睁眼态）：方位 ±48°、俯仰 −36°～+10°
-    vis = [on(a, e, 1.035) for a in range(-48, 49, 8) for e in range(-36, 11, 6)] + [on(a, e, 0.97) for a in (-48, 0, 48) for e in (-36, 10)]
-    out.append(hull("int.pilot.visor", vis, "glass", {**props, "glass": True}, bevel=0.002))
-    # 收起的暗琥珀遮光面罩：面罩上沿、眉骨下的一条
-    sun = [on(a, e, 1.05) for a in range(-44, 45, 8) for e in (11, 17)] + [on(a, e, 0.98) for a in (-44, 0, 44) for e in (11, 17)]
-    out.append(hull("int.pilot.sunvisor", sun, "visor", props, bevel=0.002))
-    # 眉骨：盔顶前沿一道前凸的棱（与机身眉骨同一语言），中间最凸
+    def patch(name, az0, az1, el0, el1, k, material, extra=None, step=6):
+        pts = [on(a, e, k) for a in np.arange(az0, az1 + 0.1, step) for e in np.arange(el0, el1 + 0.1, step)]
+        pts += [on(a, e, 0.94) for a in (az0, (az0 + az1) / 2, az1) for e in (el0, el1)]
+        return hull(name, pts, material, {**props, **(extra or {})}, bevel=0.002)
+
+    # 面罩框（暗金属，比玻璃大一圈）→ 窄面罩：方位 ±40°、俯仰 −30°～+8°
+    out.append(patch("int.pilot.visor.frame", -45, 45, -35, 11, 1.022, "frame"))
+    out.append(patch("int.pilot.visor", -40, 40, -30, 8, 1.04, "glass", {"glass": True}, step=5))
+    # 收起的遮光面罩：面罩上沿、眉骨下一条暗琥珀
+    out.append(patch("int.pilot.sunvisor", -40, 40, 10, 17, 1.05, "visor", step=4))
+    # 下颌护条：面罩下沿
+    out.append(patch("int.pilot.helmet.chin", -38, 38, -44, -33, 1.035, "helmet", step=5))
+    # 眉骨：盔顶前沿一道前凸的楔，中间最凸（约 3.5 cm），两端收进盔壳
     brow = []
-    for a in range(-42, 43, 6):
-        k = 1.06 + 0.05 * math.cos(math.radians(a) * 2.1)
-        brow += [on(a, 19, k), on(a, 26, 1.04), on(a, 19, 0.98)]
-    out.append(hull("int.pilot.helmet.brow", brow, "helmet", props, bevel=0.004))
-    # 盔脊：眉骨后沿顶中线到后脑，一条微凸的窄脊（分三段凸体）
-    for k, (e0, e1) in enumerate(((28, 70), (70, 115), (115, 150))):
+    for a in range(-50, 51, 5):
+        w = math.cos(math.radians(a) * 1.4) ** 2 if abs(a) < 64 else 0.0
+        brow += [on(a, 15, 1.0), on(a, 31, 0.995), on(a, 20, 1.0 + 0.25 * w), on(a, 25, 1.0 + 0.18 * w)]
+    out.append(hull("int.pilot.helmet.brow", brow, "frame", props, bevel=0.003))
+    # 盔脊：眉骨后沿顶中线到后脑，一条凸起 1 cm 的窄脊（分三段凸体）
+    for k, (e0, e1) in enumerate(((30, 70), (70, 115), (115, 150))):
         pts = []
         for e in (e0, e1):
-            for a in (-7, 7):
+            for a in (-8, 8):
                 ang = math.radians(e)
                 base = c + f * (R[0] * math.cos(ang)) + u * (R[2] * math.sin(ang))
                 n = (base - c).normalized()
-                pts += [base + l * (R[1] * math.sin(math.radians(a))) + n * d for d in (-0.004, 0.007)]
+                pts += [base + l * (R[1] * math.sin(math.radians(a))) + n * d for d in (-0.004, 0.01)]
         out.append(hull(f"int.pilot.helmet.ridge{k}", pts, "helmet", props, bevel=0.002))
-    # 面罩铰链（两侧）、颈环
+    # 面罩铰链（两侧圆盘 + 中心螺栓）、颈环（镀铬，带两只锁扣）
     for sd, sg in (("l", 1), ("r", -1)):
         p = on(90 * sg, 2, 1.0)
-        out.append(cylinder(f"int.pilot.helmet.hinge.{sd}", p - l * sg * 0.004, p + l * sg * 0.012, 0.028, 18, "metal", props, bevel=0.002))
+        out.append(cylinder(f"int.pilot.helmet.hinge.{sd}", p - l * sg * 0.004, p + l * sg * 0.014, 0.034, 20, "metal", props, bevel=0.002))
+        out.append(cylinder(f"int.pilot.helmet.hinge.{sd}.bolt", p + l * sg * 0.012, p + l * sg * 0.02, 0.009, 6, "chrome", props, bevel=0.0))
     neck = Vector(J["neck"])
     ax = Vector(G @ Z)
-    out.append(lathe("int.pilot.neckring", neck - ax * 0.01, neck + ax * 0.035, [(0, 0.082), (0.4, 0.09), (1, 0.086)], 28, "metal", props))
-    return out, {k: Vector(v) for k, v in J.items()} | {"head": c, "helmet_top": c + u * R[2]}
+    out.append(lathe("int.pilot.neckring", neck - ax * 0.012, neck + ax * 0.04, [(0, 0.092), (0.25, 0.104), (0.75, 0.104), (1, 0.096)], 32, "chrome", props))
+    for sd, sg in (("l", 1), ("r", -1)):
+        p = neck + ax * 0.014 + l * sg * 0.104
+        out.append(box(f"int.pilot.neckring.latch.{sd}", p, (0.03, 0.016, 0.022), material="metal", face="+y", panel=False, handles=False, plugs=0, ears=False, props=props))
+    return out, {k: Vector(v) for k, v in J.items()} | {"head": c, "helmet_top": c + u * R[2]}, seams

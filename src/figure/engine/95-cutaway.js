@@ -42,6 +42,8 @@
     cutaway.on = !!on;
     showState.cutaway = cutaway.on;
     for (const layer of airLayers) if (layer.cut) layer.clip(cutaway.on);
+    shared.uDepthFade.value = cutaway.on ? 1 : 0;
+    lineDepthFade.value = cutaway.on ? 1 : 0;
     // 座舱盖玻璃：剖视时半透明、线条转青色（K1 的画法）
     for (const m of cutGlass) {
       m.transparent = cutaway.on;

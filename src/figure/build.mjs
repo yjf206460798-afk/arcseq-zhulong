@@ -17,8 +17,11 @@ const option = (name, fallback) => argv.find((a) => a.startsWith(`--${name}=`))?
 const VARIANT = option("variant", "glb");
 /** --assets=dist/fast：用 blender/build.py --fast 的产物预览（不烘焙）。 */
 const ASSETS = join(ROOT, option("assets", "assets"));
-/** --look=metal：B 画法（参考图那种金属质感：工作室环境光 + 烘焙的法线 / 粗糙度贴图，线条降一级）；默认 lines（A：线条 + 五档明暗）。 */
-const LOOK = option("look", "lines");
+/**
+ * 画法（作者 2026-10-15 定）：默认 metal = B 金属质感（工作室环境光 + 烘焙的法线 / 粗糙度贴图，线条降一级），
+ * 页面上「图纸」按钮在运行时切到 A（线条 + 五档明暗）；--look=lines 出只有 A 的页面（不带 B 的贴图，小一些，审图用）。
+ */
+const LOOK = option("look", "metal");
 /** --stress=N：常驻外形重复 N 份（同一位置），只为实测面数预算（docs/BLENDER.md），不用于发布。 */
 const STRESS = Number(option("stress", 1));
 
@@ -57,7 +60,7 @@ async function geometry() {
     parts: [],
     fitParts: ext,
     mesh: { pack: packMesh(ext, edgeOf) },
-    modules: inner.length ? { interior: { pack: packMesh(inner, edgeOf) } } : {},
+    modules: inner.length ? { interior: { pack: packMesh(inner, edgeOf), seams: M.interiorSeams ?? [] } } : {},
     tris: { exterior: ext.reduce((n, p) => n + p.f.length / 4, 0), interior: inner.reduce((n, p) => n + p.f.length / 4, 0) },
     seams: M.seams ?? [], landmarks: M.landmarks ?? {}, joints: M.joints ?? [], offset: M.offset ?? [0, 0, 0], detail, focus: M.focus, masks: M.masks ?? [], callouts: M.callouts ?? [],
   };
@@ -109,9 +112,13 @@ const PALETTE = {
   /** 銜燭软态：抗荷气囊贴片（比服装略浅、略冷）、挽具织带（更暗）、收起的遮光面罩（暗琥珀，不是镜面金） */
   pad: ["#2c2f31", "#333638", "#3b3e41", "#43474a", "#4c5053"],
   strap: ["#161718", "#1a1b1c", "#1e1f21", "#232426", "#28292b"],
-  visor: ["#2a1d0e", "#332311", "#3d2a14", "#473117", "#52391b"],
+  visor: ["#3a2610", "#472f14", "#553919", "#63431e", "#734f24"],
+  /** 胸前铭文「銜燭」：浅灰小字 */
+  inscription: ["#7d8688", "#8b9496", "#99a2a4", "#a7b0b2", "#b5bec0"],
   /** 剖视背景板（舱壁）：比结构件暗，只当底 */
   backwall: ["#1e2427", "#232a2d", "#283033", "#2e363a", "#343d41"],
+  /** 剖视远侧内壁壁板与座舱侧壁（K1 的浅灰内衬，R4）：比设备箱浅、比剖面带暗 */
+  liner: ["#3d4447", "#454c50", "#4e565a", "#575f63", "#61696d"],
   helmet: ["#3a3d3e", "#434748", "#4d5152", "#575b5d", "#626768"],
   section: ["#56605f", "#5d6766", "#646e6d", "#6b7574", "#727c7b"],
   /** 铭牌（设备箱上的浅色小牌）、警示件（弹射拉环等，暗琥珀） */
@@ -135,19 +142,21 @@ const MATERIALS = {
   void: { tones: "body", shade: "hull", mouth: true },
   round: { tones: "body", shade: "round" },
 };
-for (const k of ["frame", "metal", "chrome", "rubber", "iris", "vermilion", "stand", "structure", "avionics", "panel", "pipe", "cable", "tank", "screen", "seat", "suit", "pad", "strap", "visor", "helmet", "section", "label", "hazard", "backwall"]) MATERIALS[k] = { tones: k, shade: ["metal", "chrome", "rubber", "pipe", "cable", "tank", "helmet", "suit", "pad", "strap", "visor"].includes(k) ? "round" : "facet" };
+for (const k of ["frame", "metal", "chrome", "rubber", "iris", "vermilion", "stand", "structure", "avionics", "panel", "pipe", "cable", "tank", "screen", "seat", "suit", "pad", "strap", "visor", "inscription", "helmet", "section", "label", "hazard", "backwall", "liner"]) MATERIALS[k] = { tones: k, shade: ["metal", "chrome", "rubber", "pipe", "cable", "tank", "helmet", "suit", "pad", "strap", "visor"].includes(k) ? "round" : "facet" };
 /** B 画法的材质参数：[金属度, 粗糙度, 基色增益]（基色取色板第 4 档，换到线性空间再乘增益）。 */
 const PBR = {
   hull: [0.62, 0.34, 3.6], belly: [0.45, 0.45, 3.4], carbon: [0.2, 0.35, 2.4], glass: [0.0, 0.05, 1.0], interior: [0.3, 0.55, 4.0], sensor: [0.0, 0.08, 1.6],
   void: [0.2, 0.6, 1.0], round: [0.5, 0.45, 3.0], frame: [0.7, 0.35, 3.2], metal: [0.85, 0.3, 4.5], chrome: [1.0, 0.12, 3.5], rubber: [0.0, 0.8, 2.2],
   iris: [0.6, 0.35, 3.0], vermilion: [0.2, 0.4, 1.7], stand: [0.5, 0.5, 2.0], structure: [0.75, 0.36, 3.1], avionics: [0.45, 0.42, 3.6], panel: [0.4, 0.45, 2.4],
-  pipe: [0.85, 0.3, 3.45], cable: [0.1, 0.65, 3.0], tank: [0.85, 0.28, 4.5], screen: [0.0, 0.1, 1.5], seat: [0.25, 0.6, 4.5], suit: [0.15, 0.6, 2.4], pad: [0.15, 0.55, 2.7], strap: [0.05, 0.75, 3.0], visor: [0.6, 0.15, 2.0],
-  helmet: [0.4, 0.25, 4.0], section: [0.6, 0.4, 2.0], label: [0.1, 0.5, 3.5], hazard: [0.2, 0.5, 3.0], backwall: [0.3, 0.7, 0.65],
+  pipe: [0.85, 0.3, 3.45], cable: [0.1, 0.65, 3.0], tank: [0.85, 0.28, 4.5], screen: [0.0, 0.1, 1.5], seat: [0.25, 0.6, 4.5], suit: [0.05, 0.72, 1.3], pad: [0.08, 0.62, 1.7], strap: [0.05, 0.75, 3.0], visor: [0.6, 0.15, 2.0], inscription: [0.2, 0.5, 1.6],
+  helmet: [0.35, 0.3, 2.2], section: [0.6, 0.4, 2.0], label: [0.1, 0.5, 3.5], hazard: [0.2, 0.5, 3.0], backwall: [0.3, 0.7, 0.65], liner: [0.25, 0.62, 1.45],
 };
 for (const [k, m] of Object.entries(MATERIALS)) {
   m.pbr = PBR[k] ?? [0.3, 0.5, 2.4];
   if (m.detail === "skin" && G.detail.skinPbr) m.pbrMap = "skinPbr";
 }
+// 剖视远侧内衬：K1 的浅灰壁板近乎平光（朝下的远侧屋面也是浅灰），按 0.85 混向平光
+MATERIALS.liner.fill = 0.85;
 /**
  * 线条分级（FIG.01 G2，VISUAL_TARGET：L0 0.6～0.9 / L1 约 0.5 / L2 0.35～0.5 px）。
  * accents：作品标志色的线（朱红棱线）：线宽同主描边、偏暗不荧光；idle 为未通电时的亮度（三四成），通电后由机头沿线点亮并进发光缓冲。
@@ -257,7 +266,8 @@ const DATA = {
   focus: G.focus ?? {},
   detail: G.detail,
   look: LOOK,
-  metal: { env: 1, lines: [0.55, 0.45, 0.3] },
+  /** B（默认画法）：外轮廓浅色、结构线与分割线深色细缝（刻出来的缝），三级不透明度见 lineAlpha。 */
+  metal: { env: 1, lines: [1, 1, 1], lineColor: ["#c3d0d4", "#11181c", "#11181c"], lineAlpha: [0.5, 0.5, 0.42] },
   controls: CONTROLS,
   pairs: [],
   shows: SHOWS,
@@ -271,7 +281,7 @@ const stage = `<div class="af-stage" data-mode="lines" tabindex="0" role="slider
 const chip = (attr, label) => `<button type="button" class="af-chip" ${attr}>${label}</button>`;
 const consoleHtml = `<section class="af-console" aria-label="控制台"><div class="af-actions">
 <div class="af-row"><span class="af-key">MAIN</span><div class="af-chips" role="group" aria-label="演出">${SHOWS.map((s) => chip(`data-show="${s.id}"`, `▶ ${s.label}`)).join("")}<span class="af-state" data-show-state aria-live="polite">停机</span></div></div>
-<div class="af-row"><span class="af-key">SYSTEMS</span><div class="af-chips" role="group" aria-label="机构">${CONTROLS.filter((c) => !c.sweep).map((c) => chip(`data-control="${c.id}"`, c.label)).join("")}${Object.keys(G.modules ?? {}).length ? chip('data-cutaway aria-pressed="false"', "剖视") : ""}</div></div>
+<div class="af-row"><span class="af-key">SYSTEMS</span><div class="af-chips" role="group" aria-label="机构">${CONTROLS.filter((c) => !c.sweep).map((c) => chip(`data-control="${c.id}"`, c.label)).join("")}${Object.keys(G.modules ?? {}).length ? chip('data-cutaway aria-pressed="false"', "剖视") : ""}${chip(`data-look aria-pressed="${LOOK === "lines"}"`, "图纸")}</div></div>
 <div class="af-row"><span class="af-key">ACTIONS</span><div class="af-panel" data-panel><span class="af-hint">点选零件，或选上面的机构</span></div></div>
 </div></section>`;
 const page = pageHtml({

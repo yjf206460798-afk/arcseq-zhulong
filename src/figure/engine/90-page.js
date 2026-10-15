@@ -317,12 +317,17 @@
       if (opts.mode) {
         const metal = opts.mode === "metal";
         shared.uLook.value = metal ? 1 : 0;
-        lineLook.levels = metal ? DATA.metal.lines : [1, 1, 1];
-        for (const layer of airLayers) if (!layer.accent) layer.levels(...lineLook.levels);
+        Object.assign(lineLook, metal ? metalLines() : drawingLines());
+        for (const layer of airLayers) {
+          if (layer.accent) continue;
+          layer.levels(...lineLook.levels);
+          layer.colors(lineLook.color, lineLook.alpha);
+        }
       }
       if (opts.ao !== undefined) shared.uAOK.value = opts.ao;
       if (opts.detail !== undefined) for (const m of materials) if (m.uniforms.uDetail.value !== blackTex) m.uniforms.uUseDetail.value = opts.detail ? 1 : 0;
       if (opts.bloom !== undefined) composeMat.uniforms.uBloom.value = opts.bloom;
+      for (const b of document.querySelectorAll("[data-look]")) b.setAttribute("aria-pressed", String(!shared.uLook.value));
       draw();
       return { ao: shared.uAOK.value, bloom: composeMat.uniforms.uBloom.value, mode: shared.uLook.value ? "metal" : "lines" };
     },
@@ -438,6 +443,8 @@
     draw,
   };
   window.__arcseq = api;
+  // 画法切换（「图纸」按钮）：B 金属质感 ↔ A 线条 + 五档明暗，运行时换 uniform，不重建
+  for (const b of document.querySelectorAll("[data-look]")) b.addEventListener("click", () => api.look({ mode: shared.uLook.value ? "lines" : "metal" }));
 
   for (const c of controls.values()) apply(c);
   setEnvironment(DATA.environment);

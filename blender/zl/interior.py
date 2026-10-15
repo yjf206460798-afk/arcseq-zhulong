@@ -26,7 +26,8 @@ from .util import XN, lerp
 
 SKIN = 0.04  # 蒙皮厚（剖面带的宽，3～5 cm）
 P = {"module": "interior", "lineLevel": "structure"}
-PC = {**P, "cut": True, "section": "cap"}  # 剖切面上被切开的内部件（屏幕墙、地板……K1 里近侧一半是剖掉的）
+PC = {**P, "cut": True, "section": "cap"}
+SEAMS = []  # 内部模块的分割线（驾驶员服装接缝……）：build.py 写进 zhulong.json 的 interiorSeams  # 剖切面上被切开的内部件（屏幕墙、地板……K1 里近侧一半是剖掉的）
 
 # —— K1 → 机体 ——————————————————————————————————————————————————————
 K1_PX = 220.0
@@ -209,6 +210,29 @@ def structure(acc):
             pts.append(p)
         for j, (a, b) in enumerate(zip(pts, pts[1:])):
             collect(acc, beam(f"int.stringer.{k}.{j}", a, b, 0.035, 0.03, Vector((0, 1, 0.4)), kind="angle", props=P))
+    # 远侧内壁壁板（K1 的浅灰内衬）：每两道框之间、每个切面（远侧屋面、外上切面、下切面、腹底远侧半边）一块，
+    # 离框 2.5 cm、离棱 2 cm，贴着内表面（离蒙皮内表面 6 mm）、厚 4 mm（不加螺钉：远侧压暗后看不见，省 2 千三角形守住模块预算）。座舱开口段的屋面不做（那里是座舱盖）
+    # ri 顺序 [R0, R1, R2, R3, −R3, −R2, −R1]：远侧的四个切面 = (−R1, R0)、(−R2, −R1)、(−R3, −R2)、(底中, −R3)
+    for k, (sa, sb) in enumerate(zip(FRAME_S, FRAME_S[1:])):
+        sa, sb = sa + 0.025, sb - 0.025
+        if sb - sa < 0.15:
+            continue
+        ra, rb = inner_ring(sa, SKIN + 0.006), inner_ring(sb, SKIN + 0.006)
+        bot = lambda r: Vector((r[3].x, 0.0, r[3].z))  # noqa: E731
+        for j, (i0, i1) in enumerate(((6, 0), (5, 6), (4, 5), ("b", 4))):
+            if j == 0 and sb > CANOPY_OPEN[0] - 0.05:
+                continue
+            q = []
+            for r in (ra, rb):
+                p0 = bot(r) if i0 == "b" else r[i0]
+                p1 = r[i1]
+                d = (p1 - p0).normalized()
+                q.append((p0 + d * 0.02, p1 - d * 0.02))
+            (a0, a1), (b0, b1) = q
+            c = (a0 + a1 + b0 + b1) / 4
+            n = (Vector((c.x, 0.0, (ring(XN - c.x)["R0"][1] + ring(XN - c.x)["R3"][1]) / 2)) - c).normalized()
+            pts = [p + n * dd for p in (a0, a1, b0, b1) for dd in (0.0, 0.004)]
+            collect(acc, hull(f"int.liner.{k}.{j}", pts, "liner", {**P, "lineLevel": "secondary"}, bevel=0.002))
     # 中线纵梁：龙骨（全长）与背脊（到座舱开口前），横跨剖切面，剖开后是实心截面
     for name, f, s0, s1, dz in (("keel", lambda s: ring(s)["R3"][1] + SKIN + 0.02, 0.8, S_END - 0.02, 1), ("spine", lambda s: ring(s)["R0"][1] - SKIN - 0.025, 0.8, CANOPY_OPEN[0] - 0.02, -1)):
         pts = [at(s, 0, f(s)) for s in (s0, min(S_FLAT_I, s1), s1)]
@@ -424,7 +448,7 @@ def cockpit(acc):
         hw = min(half_width(ss, zz) for ss in (sa, sb_) for zz in (ZF + 0.01, zt))
         yw = -min(0.41, hw - 0.012)
         pts = [at(ss, yw + d, zz) for ss in (sa + 0.012, sb_ - 0.012) for zz in (ZF + 0.012, zt) for d in (0.0, -0.01)]
-        collect(acc, hull(f"int.cp.wall.{k}", pts, "backwall", P, bevel=0.003))
+        collect(acc, hull(f"int.cp.wall.{k}", pts, "liner", P, bevel=0.003))
         collect(acc, beam(f"int.cp.wall.{k}.rib", at(sa + 0.03, yw + 0.012, Z_TIP + 0.47), at(sb_ - 0.03, yw + 0.012, Z_TIP + 0.47), 0.024, 0.03, Y, kind="angle", props=P))
         for zz in (ZF + 0.04, zt - 0.03):
             collect(acc, bolts(f"int.cp.wall.{k}.bolts{int(zz > Z_TIP + 0.5)}", at(sa + 0.03, yw + 0.001, zz), at(sb_ - 0.03, yw + 0.001, zz), 2, 0.005, Y, props=P))
@@ -533,8 +557,9 @@ def seat_and_pilot(acc):
         "palm": {"R": np.array([0.0, 1.0, 0.0]), "L": np.array([0.0, -1.0, 0.0])},
         "seat_side": {"L": pan(0.12, 0.08, 0.235), "R": pan(0.12, 0.08, -0.235)},
     }
-    parts, J = pilot.build(seat, P)
+    parts, J, seams = pilot.build(seat, P)
     collect(acc, parts)
+    SEAMS.extend(seams)
     # 脚蹬：贴在两只脚掌下（踏板随人调），踏板臂落到脚蹬斜板上
     f = Vector(seat["foot_dir"]).normalized()
     n = Vector((f.z, 0.0, -f.x))  # 脚底朝向（前下）
@@ -592,6 +617,7 @@ def aft_bay(acc):
 
 def build():
     acc = []
+    SEAMS.clear()
     structure(acc)
     harness(acc)
     nose_bay(acc)

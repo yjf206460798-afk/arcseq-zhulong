@@ -3,7 +3,8 @@
   //   kind "hull"：凸包（FIG.01 几何母版），v 平铺坐标、f 面环 [n, i0…], c 接触面、x 跨组接触面、lip 唇口面、t 顶点提亮；
   //   kind "mesh"：任意多边形网格（Blender GLB 转来），同样的 v / f，另可带 n（逐顶点法线，Blender 的平滑 / 锐边）、ao（逐顶点 AO）、uv；
   //   kind "round"：圆柱 / 圆台 { o, a, s0, s1, r }。
-  // 通用字段：name、joint、system（"void" 空腔 / "interior" / …）、material、skin（线条蒙皮组）、smooth（平滑组）、glow { key, color }。
+  // 通用字段：name、joint、system（"void" 空腔 / "interior" / …）、material、skin（线条蒙皮组）、smooth（平滑组）、glow { key, color }、
+  //   opacity（< 1 为半透明件，如光窗角膜：看得见后面的虹膜与瞳孔）。
   const facesOf = (part) => {
     const faces = [];
     for (let at = 0; at < part.f.length; ) faces.push(Array.from(part.f.slice(at + 1, at + 1 + part.f[at]))), (at += part.f[at] + 1);
@@ -214,8 +215,8 @@
       const geo = part.kind === "round" ? roundGeometry(part) : polyGeometry(part);
       for (const [kind, data] of Object.entries(geo)) {
         if (!data.pos.length) continue;
-        const key = `${keyOf(part)}|${kind}|${material.uuid}|${part.show ?? ""}|${part.cut ? 1 : 0}|${part.section ?? ""}`;
-        if (!buckets.has(key)) buckets.set(key, { joint: keyOf(part), glow: !!part.glow, show: part.show ?? null, cut: !!part.cut, section: part.section ?? "cap", material: kind === "recess" ? recess(material) : material, ...newBucket(), ranges: [] });
+        const key = `${keyOf(part)}|${kind}|${material.uuid}|${part.show ?? ""}|${part.cut ? 1 : 0}|${part.section ?? ""}|${part.opacity ?? 1}`;
+        if (!buckets.has(key)) buckets.set(key, { joint: keyOf(part), glow: !!part.glow, show: part.show ?? null, cut: !!part.cut, section: part.section ?? "cap", opacity: part.opacity ?? 1, material: kind === "recess" ? recess(material) : material, ...newBucket(), ranges: [] });
         const b = buckets.get(key);
         b.ranges.push([b.pos.length / 3, (b.pos.length + data.pos.length) / 3, index]);
         for (const q of ["pos", "nor", "mark", "depth", "ao", "glow", "uv"]) for (let i = 0; i < data[q].length; i++) b[q].push(data[q][i]);
@@ -231,7 +232,9 @@
       g.setAttribute("aGlow", new THREE.Float32BufferAttribute(b.glow, 1));
       g.setAttribute("uv", new THREE.Float32BufferAttribute(b.uv, 2));
       g.computeBoundingSphere();
-      const mesh = new THREE.Mesh(g, b.cut ? cutMaterial(b.material, b.section) : b.material);
+      const base = b.opacity < 1 ? translucent(b.material, b.opacity) : b.material;
+      const mesh = new THREE.Mesh(g, b.cut ? cutMaterial(base, b.section) : base);
+      if (b.opacity < 1) mesh.renderOrder = 1;
       mesh.userData.ranges = b.ranges;
       mesh.userData.show = b.show;
       groupObj(b.joint).add(mesh);

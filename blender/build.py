@@ -59,6 +59,7 @@ def main():
     inner = [o for o, _ in pairs]
     meta["edges"].update({o.name: l for o, l in pairs})
     meta["callouts"] += callouts
+    meta["interiorSeams"] = interior.SEAMS
     bands = section.bands()
     meta["edges"].update({o.name: l for o, l in bands})
     inner += [o for o, _ in bands]

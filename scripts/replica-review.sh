@@ -1,6 +1,7 @@
 #!/bin/sh
 # Z1 复刻样板交审截图（可重跑）：sh scripts/replica-review.sh [输出目录]
-# 先构建：.venv/bin/python blender/build.py && node src/figure/build.mjs && node src/figure/build.mjs --look=metal --out=dist/metal.html
+# 先构建：.venv/bin/python blender/build.py && node src/figure/build.mjs && node src/figure/build.mjs --look=lines --out=dist/drawing.html
+# 页面：dist/index.html = B 金属质感（默认，作者 2026-10-15 定）；dist/drawing.html = A 图纸模式
 set -e
 cd "$(dirname "$0")/.."
 export CHROME_PATH="$PWD/scripts/chrome.sh"
@@ -29,7 +30,7 @@ views = [
     ("k1-cut", k1, [40, 170, 1720, 650], 90, 0, [[[9.17, 0, 1.66], [97, 449]], [[2.17, 0, 1.66], [1637, 449]]], 3, 1, "__arcseq.set('sensor',1);__arcseq.cutaway(true)"),
 ]
 out = []
-for look, page in (("A", "dist/index.html"), ("B", "dist/metal.html")):
+for look, page in (("A", "dist/drawing.html"), ("B", "dist/index.html")):
     if look not in looks.split():
         continue
     for name, ref, crop, head, elev, anchors, scale, zoom, pre in views:
@@ -43,13 +44,18 @@ json.dump(out, open(spec, "w"), indent=1)
 PY
 timeout -k 5 1800 node scripts/overlay.mjs "$OUT" "$SPEC"
 
-# 2. 固定审图机位（A、B），BEFORE = Z1 look-dev 的同机位
-for d in 030 120 210 300; do cp -f review/20261015-Z1-lookdev/AFTER-lines-az$d.png "$OUT/BEFORE-lines-az$d.png"; done
-case " $LOOKS " in *" A "*) $S --mode lines --prefix AFTER-A --scale 2 ;; esac
-case " $LOOKS " in *" B "*) $S --page dist/metal.html --mode lines --prefix AFTER-B --scale 2 ;; esac
+# 2. 固定审图机位（A、B）。BEFORE：BEFORE_FROM 目录里 BEFORE_NAME-azNNN.png 的同机位（默认 Z1 look-dev），
+#    该目录若有上一轮的 B 特写 / 斜视（CLOSE-B-* / OBLIQUE-B-*），一并拷成 BEFORE-*，与本轮 B 并排
+#    例：BEFORE_FROM=review/20261015-Z1-replica BEFORE_NAME=AFTER-B-lines sh scripts/replica-review.sh review/20261015-Z1-replica4
+BEFORE_FROM="${BEFORE_FROM:-review/20261015-Z1-lookdev}"
+BEFORE_NAME="${BEFORE_NAME:-AFTER-lines}"
+for d in 030 120 210 300; do cp -f "$BEFORE_FROM/$BEFORE_NAME-az$d.png" "$OUT/BEFORE-lines-az$d.png"; done
+for f in "$BEFORE_FROM"/CLOSE-B-*.png "$BEFORE_FROM"/OBLIQUE-B-*.png "$BEFORE_FROM"/AFTER-k1-cut-B.png; do [ -f "$f" ] && cp -f "$f" "$OUT/BEFORE-$(basename "$f")"; done
+case " $LOOKS " in *" A "*) $S --page dist/drawing.html --mode lines --prefix AFTER-A --scale 2 ;; esac
+case " $LOOKS " in *" B "*) $S --page dist/index.html --mode lines --prefix AFTER-B --scale 2 ;; esac
 
 # 3. 1× / 4× / 12× 特写（A、B 同机位）
-for L in A:dist/index.html B:dist/metal.html; do
+for L in A:dist/drawing.html B:dist/index.html; do
   T=${L%%:*}; P=${L#*:}
   case " $LOOKS " in *" $T "*) ;; *) continue ;; esac
   $S --page $P --mode lines --prefix CLOSE-$T --views 30 --tag 1x --scale 2
@@ -57,6 +63,9 @@ for L in A:dist/index.html B:dist/metal.html; do
   $S --page $P --mode lines --prefix CLOSE-$T --views 60 --elevation 12 --tag 4x-rcs --scale 2 --pre "__arcseq.view(60,'lines',12);__arcseq.focus('rcs.l',4)"
   $S --page $P --mode lines --prefix CLOSE-$T --views 30 --elevation 10 --tag 12x-eye --scale 2 --pre "$ON;__arcseq.view(30,'lines',10);__arcseq.focus('sensor',12)"
   $S --page $P --mode lines --prefix CLOSE-$T --views 60 --tag 12x-roller --scale 2 --pre "__arcseq.view(60,'lines');__arcseq.focus([4.52,0.5,2.22],12)"
+  # 外观复刻细节（R4）：大气数据探头、静压孔、天线、姿控格栅、口盖（凹缝 + 紧固件）
+  $S --page $P --mode lines --prefix CLOSE-$T --views 60 --elevation 6 --tag 4x-details --scale 2 --pre "$ON;__arcseq.view(60,'lines',6);__arcseq.focus([7.9,0,1.55],4)"
+  $S --page $P --mode lines --prefix CLOSE-$T --views 30 --elevation 30 --tag 6x-hatch --scale 2 --pre "__arcseq.view(30,'lines',30);__arcseq.focus([5.9,0.1,2.3],6)"
   $S --page $P --mode lines --prefix CLOSE-$T --views 90 --elevation 0 --tag 4x-cockpit-cut --scale 2 --pre "__arcseq.set('sensor',1);__arcseq.cutaway(true).then(()=>{__arcseq.view(90,'lines',0);__arcseq.focus([3.35,0,2.2],3.2)})"
   $S --page $P --mode lines --prefix CLOSE-$T --views 100 --elevation 25 --tag 7x-pilot --scale 2 --pre "__arcseq.cutaway(true).then(()=>{__arcseq.view(100,'lines',25);__arcseq.focus([3.3,0,2.3],7)})"
   # A/B 3/4 斜视（金属质感在斜视里才读得出）：外形通电、剖视各一张
@@ -65,12 +74,18 @@ for L in A:dist/index.html B:dist/metal.html; do
 done
 
 # 4. 三张目标帧（A、B）与 300 px 缩略图
-for L in A:dist/index.html B:dist/metal.html; do
+for L in A:dist/drawing.html B:dist/index.html; do
   T=${L%%:*}; P=${L#*:}
   case " $LOOKS " in *" $T "*) ;; *) continue ;; esac
   $S --page $P --mode lines --prefix TARGET-1-parked-$T --views 30 --thumb --scale 2
   $S --page $P --mode lines --prefix TARGET-3-orbit-$T --views 330 --elevation 12 --thumb --scale 2 --pre "$ON;__arcseq.environment('space')"
 done
-case " $LOOKS " in *" A "*) timeout -k 5 300 node .claude/skills/anatomy/scripts/drive.mjs dist/index.html --height 1000 --actions scripts/target2.json ;; esac
-case " $LOOKS " in *" B "*) timeout -k 5 300 node .claude/skills/anatomy/scripts/drive.mjs dist/metal.html --height 1000 --actions scripts/target2-b.json ;; esac
+# 目标帧 ②（电影画质）：动作表里的输出路径换成本轮目录
+for T in A:target2.json:dist/drawing.html B:target2-b.json:dist/index.html; do
+  L=${T%%:*}; R=${T#*:}; J=${R%%:*}; P=${R#*:}
+  case " $LOOKS " in *" $L "*) ;; *) continue ;; esac
+  sed "s#review/20261015-Z1-replica/#$OUT/#g" "scripts/$J" > "$OUT/.actions.json"
+  timeout -k 5 300 node .claude/skills/anatomy/scripts/drive.mjs $P --height 1000 --actions "$OUT/.actions.json"
+done
+rm -f "$OUT/.actions.json"
 python3 scripts/replica-sheets.py "$OUT"

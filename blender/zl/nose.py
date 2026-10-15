@@ -25,6 +25,7 @@ S_END = 7.6
 S_FLAT = 6.4  # 背脊在此之后放平
 K = {"R0": (0.0, 0.182), "R1": (0.135, 0.065), "R2": (0.150, 0.035), "R3": (0.070, -0.118)}
 EYE = {"s": 0.33, "r": 0.086, "z": 0.01}  # C2 三视图实测：眼心 s≈0.32、半径约 0.09，略高于机头尖线
+IRIS_CLOSED = False  # 停机是睁眼：虹膜六瓣收起，看得见角膜后的光圈与瞳孔（作者 R4）
 CAP_S, CAP_R = 0.264, 0.055  # 虹膜尖盖：长到 s 0.25（眼珠前极稍后），底半径 = 眼珠在该站位的截面半径
 FRAMES = [0.67, 1.25, 2.05, 3.1, 3.9, 4.75, 6.95]  # 结构框站位（K1 的舱壁）
 EDGES = {}  # 对象名 → 线数据（finish 的输出），build() 写进 meta
@@ -187,28 +188,80 @@ def eye():
         EDGES[o.name] = finish(o, bevel=0, curved=True)
         return o
 
-    # 眼珠：深色烟晶玻璃球（整颗是广角光窗，通电透出琥珀微光）
-    bm = bmesh.new()
-    bmesh.ops.create_uvsphere(bm, u_segments=64, v_segments=32, radius=r)
-    bmesh.ops.rotate(bm, verts=bm.verts, cent=(0, 0, 0), matrix=Matrix.Rotation(math.pi / 2, 3, "Y"))
-    bmesh.ops.translate(bm, verts=bm.verts, vec=c)
-    # 只留机身前端面以前的部分（断口藏在密封圈与内圈台阶环后面）：后半球贴着蒙皮内侧，留着它的轮廓线会透过 2 cm 的线条偏移露出来
-    bmesh.ops.delete(bm, geom=[v for v in bm.verts if XN - v.co.x > S_FRONT - 0.002], context="VERTS")
-    # 通电只透出一点暖琥珀微光（DESIGN：“烛”），发光色压暗，满功率也不发白
-    o = new_object("sensor.ball", bm, "sensor", {"skin": "sensor.ball", "glow": {"key": "sensor", "color": "#9a5218"}})
+    # 眼珠：深色烟晶玻璃球，分两件——前极“角膜”（根环以内，透明，看得见里面的虹膜与瞳孔）+ 其余眼球（暗烟晶，通电只透出暗琥珀）。
+    # 停机（大气内）是睁眼：六瓣虹膜收进眼眶（DESIGN 8.6：合拢成尖盖是高超音速 / 再入的闭眼态，开合机构 Z4 做）
+    def ball(front):
+        bm = bmesh.new()
+        bmesh.ops.create_uvsphere(bm, u_segments=64, v_segments=40, radius=r)
+        bmesh.ops.rotate(bm, verts=bm.verts, cent=(0, 0, 0), matrix=Matrix.Rotation(math.pi / 2, 3, "Y"))
+        bmesh.ops.translate(bm, verts=bm.verts, vec=c)
+        # 只留机身前端面以前的部分（断口藏在密封圈与内圈台阶环后面）
+        bmesh.ops.delete(bm, geom=[v for v in bm.verts if XN - v.co.x > S_FRONT - 0.002], context="VERTS")
+        cut = [f for f in bm.faces if ((XN - f.calc_center_median().x) < CAP_S) != front]
+        bmesh.ops.delete(bm, geom=cut, context="FACES")
+        return bm
+
+    o = new_object("sensor.ball", ball(False), "sensor", {"skin": "sensor.ball"})  # 眼球不发光（不要“发光环”），只有瞳孔是“烛”
     EDGES[o.name] = finish(o, bevel=0, curved=True)
     out.append(o)
-    # 内透镜：前极一枚凸透镜（虹膜张开时看得见），后面一圈镜筒
-    lens_s = EYE["s"] - r + 0.012
-    bm = bmesh.new()
-    bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=12, radius=0.034)
-    bmesh.ops.scale(bm, verts=bm.verts, vec=(0.45, 1, 1))
-    bmesh.ops.translate(bm, verts=bm.verts, vec=at(lens_s, 0, c.z))
-    o = new_object("sensor.lens", bm, "glass", {"skin": "sensor.lens", "glass": True})
+    o = new_object("sensor.cornea", ball(True), "glass", {"skin": "sensor.cornea", "glass": True, "opacity": 0.22})
     EDGES[o.name] = finish(o, bevel=0, curved=True)
     out.append(o)
-    out.append(torus("sensor.lens.barrel", lens_s + 0.004, 0.036, 0.004, "carbon", {"skin": "sensor.lens.barrel", "lineLevel": "secondary"}))
-    # 虹膜六瓣：合拢时拼成机头尖盖（卵形，s 0 → CAP_S），每瓣厚 2.5 mm，瓣间留 1 mm 缝；瓣根铰在前极的根环上
+    # 角膜后面：虹膜光圈（六片 1.2 mm 叶片，内缘拼成六边形瞳孔、外缘一段圆弧，片间错叠）→ 瞳孔透镜（通电是“烛”的亮点）
+    s_i = CAP_S + 0.017
+    ra, ro = 0.03, 0.062
+    for k in range(6):
+        th = math.radians(60 * k)
+        pts = []
+        for a_ in (-30, 30):
+            ang = th + math.radians(a_)
+            rr = ra / math.cos(math.radians(30))
+            pts.append((math.cos(ang) * rr, math.sin(ang) * rr))
+        for a_ in range(-40, 41, 10):
+            ang = th + math.radians(a_)
+            pts.append((math.cos(ang) * ro, math.sin(ang) * ro))
+        ds = 0.0009 * k
+        P = [at(s_i + ds + d, y, c.z + z) for y, z in pts for d in (0.0, 0.0012)]
+        o, l = hull(f"sensor.iris.blade{k}", P, "metal", {"skin": f"sensor.iris.blade{k}", "lineLevel": "secondary"}, bevel=0.0)
+        EDGES[o.name] = l
+        out.append(o)
+    out.append(torus("sensor.iris.housing", s_i + 0.003, ro + 0.004, 0.0045, "carbon", {"skin": "sensor.iris.housing", "lineLevel": "secondary"}))
+    bm = bmesh.new()
+    bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=16, radius=0.034)
+    bmesh.ops.scale(bm, verts=bm.verts, vec=(0.5, 1, 1))
+    bmesh.ops.translate(bm, verts=bm.verts, vec=at(s_i + 0.022, 0, c.z))
+    o = new_object("sensor.lens", bm, "sensor", {"skin": "sensor.lens", "glow": {"key": "sensor", "color": "#ffb060"}})
+    EDGES[o.name] = finish(o, bevel=0, curved=True)
+    out.append(o)
+    if IRIS_CLOSED:
+        out += iris_cap(c)
+    # 根环：角膜边上一圈（虹膜六瓣铰在这一圈上，铰轴是这圈的切线，Z4 做开合）
+    out.append(torus("sensor.iris.ring", CAP_S - 0.002, CAP_R + 0.0005, 0.0032, "metal", {"skin": "sensor.iris.ring", "lineLevel": "secondary"}))
+    # 多层眼眶：机身前端面上外圈压边环、内圈台阶环，眼珠与眼窝之间一圈橡胶密封圈
+    sf = S_FRONT
+    # 外圈压边环比机身端面略大（C2 三个视图里眼珠外都有一圈浅色的环），浅金属色
+    for name, r0, r1, d0, d1, mat in (("sensor.socket.outer", r * 1.04, r * 1.32, -0.01, 0.004, "metal"), ("sensor.socket.inner", r * 0.985, r * 1.04, -0.004, 0.012, "carbon")):
+        bm = bmesh.new()
+        n = 72
+        rings_ = []
+        for rad, ds in ((r0, d0), (r1, d0), (r1, d1), (r0, d1)):
+            rings_.append([bm.verts.new(Vector((XN - sf - ds, math.cos(2 * math.pi * k / n) * rad, c.z + math.sin(2 * math.pi * k / n) * rad))) for k in range(n)])
+        for A, B in zip(rings_, rings_[1:] + rings_[:1]):
+            for k in range(n):
+                j = (k + 1) % n
+                bm.faces.new((A[k], A[j], B[j], B[k]))
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        o = new_object(name, bm, mat, {"skin": name, "lineLevel": "secondary"})
+        EDGES[o.name] = finish(o, bevel=0.0015, angle=45)
+        out.append(o)
+    seal_r = math.sqrt(r * r - (EYE["s"] - sf + 0.006) ** 2) + 0.002
+    out.append(torus("sensor.seal", sf - 0.006, seal_r, 0.0026, "rubber", {"skin": "sensor.seal", "lineLevel": "secondary"}))
+    return out
+
+
+def iris_cap(c):
+    """闭眼态：六瓣虹膜合拢成机头尖盖（卵形，s 0 → CAP_S，每瓣厚 2.5 mm、瓣间 1 mm 缝）+ 尖端钛针。停机睁眼时不建（IRIS_CLOSED）。"""
+    out = []
     n_s, n_az = 14, 10
     for k in range(6):
         gap = 0.0005 / CAP_R
@@ -242,27 +295,6 @@ def eye():
     o, l = cylinder("sensor.pin", at(-0.012, 0, c.z), at(0.035, 0, c.z), 0.0012, 10, "chrome", {"skin": "sensor.pin", "lineLevel": "secondary"}, r2=cap_radius(0.035) * 0.8)
     EDGES[o.name] = l
     out.append(o)
-    # 根环：六瓣铰在这一圈上（铰轴是这圈的切线，Z4 做开合）
-    out.append(torus("sensor.iris.ring", CAP_S - 0.002, CAP_R + 0.0005, 0.0032, "metal", {"skin": "sensor.iris.ring", "lineLevel": "secondary"}))
-    # 多层眼眶：机身前端面上外圈压边环、内圈台阶环，眼珠与眼窝之间一圈橡胶密封圈
-    sf = S_FRONT
-    # 外圈压边环比机身端面略大（C2 三个视图里眼珠外都有一圈浅色的环），浅金属色
-    for name, r0, r1, d0, d1, mat in (("sensor.socket.outer", r * 1.04, r * 1.32, -0.01, 0.004, "metal"), ("sensor.socket.inner", r * 0.985, r * 1.04, -0.004, 0.012, "carbon")):
-        bm = bmesh.new()
-        n = 72
-        rings_ = []
-        for rad, ds in ((r0, d0), (r1, d0), (r1, d1), (r0, d1)):
-            rings_.append([bm.verts.new(Vector((XN - sf - ds, math.cos(2 * math.pi * k / n) * rad, c.z + math.sin(2 * math.pi * k / n) * rad))) for k in range(n)])
-        for A, B in zip(rings_, rings_[1:] + rings_[:1]):
-            for k in range(n):
-                j = (k + 1) % n
-                bm.faces.new((A[k], A[j], B[j], B[k]))
-        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-        o = new_object(name, bm, mat, {"skin": name, "lineLevel": "secondary"})
-        EDGES[o.name] = finish(o, bevel=0.0015, angle=45)
-        out.append(o)
-    seal_r = math.sqrt(r * r - (EYE["s"] - sf + 0.006) ** 2) + 0.002
-    out.append(torus("sensor.seal", sf - 0.006, seal_r, 0.0026, "rubber", {"skin": "sensor.seal", "lineLevel": "secondary"}))
     return out
 
 
@@ -572,6 +604,51 @@ def probes_antennas():
     return out
 
 
+# 口盖（与 seams() 里的口盖线同一张表）：切面、站位 s0～s1、横向 t0～t1
+HATCHES = [("roof", 3.1, 4.06, 0.02, 0.73), ("roof", 0.68, 1.0, 0.25, 0.85), ("outer", 1.28, 1.7, 0.08, 0.92), ("lower", 2.1, 3.0, 0.1, 0.5), ("belly", 4.1, 5.8, 0.1, 1.0)]
+
+
+def hatches():
+    """口盖本体：口盖线以内一块高出蒙皮 0.8 mm 的薄板（板边离口盖线 4 mm——这一圈就是凹缝），板边内 1.5 cm 一圈紧固件（六角头，间距约 6 cm）。
+    腹底的是前起落架舱门（左右两扇）。"""
+    from kit.parts import bolts
+
+    out = []
+    for side, tag in ((1, "l"), (-1, "r")):
+        for k, (facet, s0, s1, t0, t1) in enumerate(HATCHES):
+            def corner(s, t, lift):
+                return surface(s, facet, t, side, lift)[0]
+
+            # 横向 t 的 4 mm：按当地两棱间距换算
+            def dt(s):
+                if facet == "belly":
+                    return 0.004 / max(ring(s)["R3"][0], 1e-3)
+                a, b = FACETS[facet]
+                R = ring(s)
+                return 0.004 / max((Vector(R[a]) - Vector(R[b])).length, 1e-3)
+
+            g0, g1 = s0 + 0.004, s1 - 0.004
+            C = [(g0, t0 + dt(g0)), (g1, t0 + dt(g1)), (g1, t1 - dt(g1)), (g0, t1 - dt(g0))]
+            pts = [corner(s, t, lift) for s, t in C for lift in (-0.002, 0.0008)]
+            o, l = hull(f"hatch.{k}.{tag}", pts, "belly" if facet in ("lower", "belly") else "hull", {"skin": f"hatch.{k}.{tag}", "lineLevel": "structure"}, bevel=0.0015)
+            EDGES[o.name] = l
+            out.append(o)
+            # 紧固件：板边内 1.5 cm 一圈
+            n = surface((s0 + s1) / 2, facet, (t0 + t1) / 2, side)[1]
+            inset = [(g0 + 0.015, t0 + 3.75 * dt(g0)), (g1 - 0.015, t0 + 3.75 * dt(g1)), (g1 - 0.015, t1 - 3.75 * dt(g1)), (g0 + 0.015, t1 - 3.75 * dt(g0))]
+            row = []
+            for (sa, ta), (sb, tb) in zip(inset, inset[1:] + inset[:1]):
+                a, b = corner(sa, ta, 0.0008), corner(sb, tb, 0.0008)
+                m = max(2, int((b - a).length / 0.06))
+                row.append(bolts(f"hatch.{k}.{tag}.f{len(row)}", a, b, m, 0.0035, n, ends=False))
+            from kit.parts import merge
+
+            o, l = merge(f"hatch.{k}.{tag}.fasteners", row, props={"skin": f"hatch.{k}.{tag}.fasteners", "lineLevel": "secondary"})
+            EDGES[o.name] = l
+            out.append(o)
+    return out
+
+
 def inlay():
     """朱红嵌条：沿朱红脊线（R1）s 4.0～7.6 的一条有厚度的嵌条（宽 9 mm，凸出 2.5 mm）；通电时沿 u（=uv.x）从前往后点亮。"""
     out = []
@@ -708,8 +785,31 @@ def seams():
         rect("roof", 3.1, 4.06, 0.0, 0.73, side, level="structure")
         for sx in (2.62, 3.54):
             line([surface(sx, "outer", t, side, 0.0015) for t in (0.0, 1.0)])
+    # 结构框处的低对比环缝：左右各一条（背脊 → 下切面），遇到口盖断开——口盖是一整块板，环缝不从板上穿过
+    def ring_runs(sx, side, lift=0.0015):
+        # 口盖离棱不到 3% 的一边按贴棱算（屋面口盖的口盖线画在背脊上），免得在凹缝里留一截短线
+        spans = [(fh, s0, s1, t0 if t0 > 0.03 else 0.0, t1 if t1 < 0.97 else 1.0) for fh, s0, s1, t0, t1 in HATCHES]
+        runs, run = [], []
+        for f in ("roof", "outer", "lower"):
+            cuts = sorted({0.0, 1.0} | {t for fh, s0, s1, t0, t1 in spans if fh == f and s0 - 0.01 <= sx <= s1 + 0.01 for t in (t0, t1)})
+            for ta, tb in zip(cuts, cuts[1:]):
+                inside = any(fh == f and s0 - 0.01 <= sx <= s1 + 0.01 and t0 <= (ta + tb) / 2 <= t1 for fh, s0, s1, t0, t1 in spans)
+                if inside:
+                    if len(run) > 1:
+                        runs.append(run)
+                    run = []
+                    continue
+                if not run:
+                    run.append(surface(sx, f, ta, side, lift))
+                run.append(surface(sx, f, tb, side, lift))
+        if len(run) > 1:
+            runs.append(run)
+        return runs
+
     for sx in (1.5, 2.2, 3.9):
-        line(around(sx))
+        for side in (1, -1):
+            for run in ring_runs(sx, side):
+                line(run)
     # 背脊两侧一条窄条（C2 俯视里贯穿到座舱前的两道细线，离中线 ±4.5 cm）
     for side in (1, -1):
         pts = []
@@ -763,6 +863,7 @@ def build():
     objs += canards()
     objs += rcs()
     objs += probes_antennas()
+    objs += hatches()
     objs += inlay()
     t, n_tiles = tiles()
     objs += t
