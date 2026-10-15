@@ -349,7 +349,7 @@ def smooth_body(P, faces, seg, shrink_iters=40, restore_iters=80):
     """去掉解剖细节、保留大体积（服装壳由它外扩，不透出肌肉）：
     ① 按骨段权重做拉普拉斯平滑（躯干最强，胸肌、腹肌、臀部抹平；四肢减弱；手、脚、头不动），会整体缩一点；
     ② 每个顶点沿平滑后的法线缩了多少，把这张“缩量”场本身再平滑很多轮（只剩大尺度），沿法线加回去——
-       大体积回来了，局部的鼓包（肌肉）没有回来。"""
+       大体积回来了，局部的鼓包（肌肉）没有回来。摆姿后另有 delta_mush() 收尾。"""
     E = set()
     for f in faces:
         for x, y in zip(f, f[1:] + f[:1]):
@@ -378,6 +378,92 @@ def smooth_body(P, faces, seg, shrink_iters=40, restore_iters=80):
     for _ in range(restore_iters):
         D = D + 0.6 * (avg(D) - D)
     return Q + Nq * np.where(body[:, None], D, 0.0)
+
+
+def bridge_grooves(Q, faces, seg, radius=0.05, iters=4, keep=0.8):
+    """布面跨过窄沟：躯干每个顶点与它 5 cm 内邻点拟合的二次曲面比，低于曲面的（沟里）沿法线推出 keep 倍，迭代几轮。
+    R4 自查：平滑、delta mush 之后，胸大肌下缘还有一道 5 mm 深的横沟，沟上的胸肌在高光里像两个鼓包；连体服不会贴进这种沟。"""
+    from scipy.spatial import cKDTree
+    used_v = np.zeros(len(Q), bool)
+    for f in faces:
+        used_v[f] = True
+    tor = np.where(used_v & np.array([s_ == "torso" for s_ in seg]))[0]
+    R = Q.copy()
+    for _ in range(iters):
+        N = vertex_normals(R, faces)
+        tree = cKDTree(R[tor])
+        lift = np.zeros(len(R))
+        for k, i in enumerate(tor):
+            nbh = R[tor[tree.query_ball_point(R[i], radius)]]
+            if len(nbh) < 10:
+                continue
+            c = nbh.mean(0)
+            n = N[i]
+            t1 = np.cross(n, [0.0, 0.0, 1.0] if abs(n[2]) < 0.9 else [1.0, 0.0, 0.0])
+            t1 /= np.linalg.norm(t1)
+            t2 = np.cross(n, t1)
+            X, Y, H = (nbh - c) @ t1, (nbh - c) @ t2, (nbh - c) @ n
+            A = np.c_[np.ones_like(X), X, Y, X * X, X * Y, Y * Y]
+            coef = np.linalg.lstsq(A, H, rcond=None)[0]
+            p = R[i] - c
+            xi, yi = p @ t1, p @ t2
+            r = p @ n - np.array([1, xi, yi, xi * xi, xi * yi, yi * yi]) @ coef
+            if r < 0:
+                lift[i] = -r * keep
+        R = R + N * lift[:, None]
+    return R
+
+
+MUSH_W = {"torso": 1.0, "uarm": 1.0, "thigh": 0.8, "farm": 0.5, "shin": 0.5}
+
+
+def delta_mush(P, Q, faces, seg, iters=30):
+    """摆姿后的收尾（delta mush）：线性蒙皮在肩、腋下、胸前会鼓出包、折出棱（手臂前伸握杆时尤其明显，R4 自查时胸侧像个鼓包）。
+    静止网格 P 与摆好的 Q 各平滑 iters 轮（只按骨段权重 MUSH_W 动，手、脚、头不动），P 相对其平滑形的细节差量
+    放到各顶点的局部标架（法线 + 切线）里，再按 Q 平滑形的标架加回去：大形跟着骨架，蒙皮的鼓包与折棱被平滑掉。"""
+    E = set()
+    for f in faces:
+        for x, y in zip(f, f[1:] + f[:1]):
+            E.add((min(x, y), max(x, y)))
+    E = np.array(sorted(E))
+    w = np.array([MUSH_W.get(s_.split(".")[0], 0.0) for s_ in seg])
+    body = np.zeros(len(Q), bool)
+    body[E.ravel()] = True
+    w = np.where(body, w, 0.0)[:, None]
+    cnt = np.zeros(len(Q))
+    np.add.at(cnt, E[:, 0], 1)
+    np.add.at(cnt, E[:, 1], 1)
+    cnt = np.maximum(cnt, 1)[:, None]
+    first = np.full(len(Q), -1)
+    for a, b in E[::-1]:
+        first[a], first[b] = b, a
+
+    def avg(X):
+        acc = np.zeros_like(X)
+        np.add.at(acc, E[:, 0], X[E[:, 1]])
+        np.add.at(acc, E[:, 1], X[E[:, 0]])
+        return acc / cnt
+
+    def smooth(X):
+        for _ in range(iters):
+            X = X + w * 0.5 * (avg(X) - X)
+        return X
+
+    def frames(S):
+        n = vertex_normals(S, faces)
+        t = S[np.maximum(first, 0)] - S
+        t = t - n * (t * n).sum(1)[:, None]
+        t /= np.maximum(np.linalg.norm(t, axis=1), 1e-12)[:, None]
+        return t, np.cross(n, t), n
+
+    Sp, Sq = smooth(P.copy()), smooth(Q.copy())
+    tp, bp, np_ = frames(Sp)
+    tq, bq, nq = frames(Sq)
+    d = P - Sp
+    out = Sq + tq * (d * tp).sum(1)[:, None] + bq * (d * bp).sum(1)[:, None] + nq * (d * np_).sum(1)[:, None]
+    keep = (w[:, 0] <= 0) | (first < 0)
+    out[keep] = Q[keep]
+    return out
 
 
 def plane_segments(V, faces, fnormals, sel, p, n, lift=0.0015):
@@ -473,6 +559,7 @@ def build(seat, props):
     rig.P = smooth_body(P0, faces, seg)
     P = rig.P
     Q, B, J = solve(rig, seat)
+    Q = bridge_grooves(delta_mush(P, Q, faces, seg), faces, seg)
     ankle_z = max(rig.h("foot.L")[2], rig.h("foot.R")[2])
     neck_z = rig.h("neck02")[2]
     N = vertex_normals(Q, faces)
@@ -706,7 +793,7 @@ def build(seat, props):
     anchor = surf(0.04, chest + 0.06, out_=0.0)
     i0 = used[np.argmin(np.linalg.norm(Q[used] - np.array(anchor), axis=1))]
     nrm = Vector(N[i0].tolist())
-    out.append(inscription("int.pilot.inscription", "銜燭", anchor + nrm * 0.004, Vector((Gc @ Y).tolist()), Vector((Gc @ Z).tolist()), 0.018, props))
+    out.append(inscription("int.pilot.inscription", "銜燭", anchor + nrm * 0.004, Vector((Gc @ Y).tolist()), Vector((Gc @ Z).tolist()), 0.024, props))
 
     # —— 头盔（DESIGN 9.1.1 重做）：蛋形盔壳 + 盔顶前凸的眉骨（与机身眉骨同一语言）+ 窄面罩（透明，睁眼态）+ 面罩上沿收起的
     # 暗琥珀遮光面罩 + 下颌护条 + 盔脊 + 两侧面罩铰链 + 颈环。各件分开建、材质分开，转台全景里也读得出来 ——

@@ -64,7 +64,7 @@ for v, t in (("c2-tip-top", "俯视"), ("c2-tip-side", "侧视"), ("c2-tip-front
     rows.append(stack([labelled(load(f"REFERENCE-{v}.png"), f"C2 {t}"), labelled(load(f"AFTER-{v}-A.png"), "A"), labelled(load(f"OVERLAY-{v}-A.png"), "50% 叠图")], vertical=False))
 save(stack(rows), "AB-c2-tip.png")
 # 1× / 4× / 12× 特写
-tags = [("az030-1x", "1× 全景"), ("az030-4x-canopy", "4× 座舱与眉骨"), ("az060-4x-rcs", "4× 姿控喷口"), ("az030-12x-eye", "12× 光窗眼珠"), ("az060-12x-roller", "12× 滑轨滚轮座"), ("az060-4x-details", "4× 探头 / 静压孔 / 天线 / 姿控格栅 / 口盖"), ("az030-6x-hatch", "6× 屋面口盖（凹缝 + 紧固件）"), ("az090-4x-cockpit-cut", "4× 剖视座舱"), ("az100-7x-pilot", "7× 驾驶员（銜燭软态）")]
+tags = [("az030-1x", "1× 全景"), ("az030-4x-canopy", "4× 座舱与眉骨"), ("az060-4x-rcs", "4× 姿控喷口"), ("az030-12x-eye", "12× 光窗眼珠"), ("az060-12x-roller", "12× 滑轨滚轮座"), ("az060-4x-details", "4× 探头 / 静压孔 / 天线 / 姿控格栅 / 口盖"), ("az030-6x-hatch", "6× 屋面口盖（凹缝 + 紧固件）"), ("az090-4x-cockpit-cut", "4× 剖视座舱"), ("az100-7x-pilot", "7× 驾驶员（銜燭软态）"), ("az060-10x-pilot-front", "10× 头盔与胸前（眉骨、窄面罩、遮光面罩、颈环、「銜燭」）")]
 for tag, t in tags:
     save(stack([labelled(load(f"CLOSE-A-lines-{tag}.png"), f"A · {t}", 1200), labelled(load(f"CLOSE-B-lines-{tag}.png"), f"B · {t}", 1200)], vertical=False), f"CLOSE-{tag}.png")
 # A/B 3/4 斜视并排（外形通电 / 剖视）

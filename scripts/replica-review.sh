@@ -68,6 +68,7 @@ for L in A:dist/drawing.html B:dist/index.html; do
   $S --page $P --mode lines --prefix CLOSE-$T --views 30 --elevation 30 --tag 6x-hatch --scale 2 --pre "__arcseq.view(30,'lines',30);__arcseq.focus([5.9,0.1,2.3],6)"
   $S --page $P --mode lines --prefix CLOSE-$T --views 90 --elevation 0 --tag 4x-cockpit-cut --scale 2 --pre "__arcseq.set('sensor',1);__arcseq.cutaway(true).then(()=>{__arcseq.view(90,'lines',0);__arcseq.focus([3.35,0,2.2],3.2)})"
   $S --page $P --mode lines --prefix CLOSE-$T --views 100 --elevation 25 --tag 7x-pilot --scale 2 --pre "__arcseq.cutaway(true).then(()=>{__arcseq.view(100,'lines',25);__arcseq.focus([3.3,0,2.3],7)})"
+  $S --page $P --mode lines --prefix CLOSE-$T --views 60 --elevation 18 --tag 10x-pilot-front --scale 2 --pre "__arcseq.cutaway(true).then(()=>{__arcseq.view(60,'lines',18);__arcseq.focus([3.2,0,2.45],10)})"
   # A/B 3/4 斜视（金属质感在斜视里才读得出）：外形通电、剖视各一张
   $S --page $P --mode lines --prefix OBLIQUE-$T --views 30 --elevation 25 --tag ext --scale 2 --pre "$ON;__arcseq.view(30,'lines',25);__arcseq.focus([5.2,0,1.9],1.7)"
   $S --page $P --mode lines --prefix OBLIQUE-$T --views 60 --elevation 22 --tag cut --scale 2 --pre "__arcseq.set('sensor',1);__arcseq.cutaway(true).then(()=>{__arcseq.view(60,'lines',22);__arcseq.focus([5.0,0,1.9],1.8)})"
