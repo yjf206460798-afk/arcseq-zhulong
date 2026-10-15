@@ -18,6 +18,7 @@
 | 驾驶舱侧剖 | `refs/layout/K1_驾驶舱侧剖.png` | PK1 + 修改一轮 |
 | 大气形态三视图 · 分色建模用图 | `refs/concept/C2_大气形态三视图_分色.png`（+ calib、叠图） | 建模用图 B |
 | 剑形态三视图 · 分色建模用图 | `refs/concept/C3_剑形态三视图_分色.png`（+ calib、叠图） | 建模用图 B + C3 专用开头 |
+| 地台 · 天门弹射托架 | `refs/concept/S1_天门弹射托架.png` | PS1（取舍见 DESIGN 7.2「概念图」） |
 | 飞行员服「銜燭」设定图 | `refs/concept/X1_衔烛设定图.png` | PX1（取舍见 DESIGN 9.1.1「概念图」） |
 
 ### P1 · 剪影探索
