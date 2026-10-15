@@ -197,6 +197,20 @@
 - 在 FIG.01「审图截图」的基础上：`shots.mjs --elevation <度>`（临时俯仰）；`--pre "__arcseq.focus('<地标>' | [x,y,z], 倍数)"`（特写取景：把模型坐标点放到画面中心，处理了不对称视锥）；`__arcseq.look({ ao, detail, bloom })`（逐项关开对照）；`__arcseq.environment('space')`。
 - Z1 look-dev 交审图由 `sh scripts/z1-review.sh` 一次生成；复刻样板由 `sh scripts/replica-review.sh` 一次生成（叠图、A/B 并排、固定机位、1× / 4× / 12× 特写、目标帧与缩略图）。
 
+## 化剑转轴与逐姿态检查（Z2 定）`[kit]`
+
+- 适用于：一切化剑 / 展剑要动的件（扇骨、翼尖鳍、鸭翼、边条、垂尾、进气门），以及以后 Z4 的解锁件、锁销、盖板。
+- 参考实现：`blender/zl/airframe.py`（几何、关节、步骤都在这一个文件）：`wing()`（扇骨 = C2 平面形 `PLANFORM` 按扇形角 `_wedge` 裁出、`_slab` 加厚）、`tail()`、`fillet()`、`intake_door()`、`mirror_joint` / `mirror_part`、`sword_steps`；`blender/check.py`（逐姿态检查）；`scripts/z2-review.sh sword`（叠图 C3、逐姿态正交俯视与斜视、缩略图）。
+- 做法：
+  1. 零件只建左侧（`.l`），写 `joint: "<关节名>"`；关节写成 `{ name, type: "hinge", point, axis, range, parent?, note }`，**正值 = 朝剑形态转**；右侧由 `mirror_joint`（点 y 取反、轴按赝矢量 `[-ax, ay, -az]`）和 `mirror_part` 生成，左右同一组角度就是镜像动作。
+  2. 挂在别的动件上的（翼尖鳍挂在前缘扇骨上）写 `parent`；关节点、轴都按**静止姿态**的坐标写，引擎按父子组嵌套自动复合。
+  3. 在 `sword_steps` 加一步 `{ joint, to, span: [起, 止] }`：控件值 0 → 1，每步在自己的区间里 smoothstep；相邻步骤可以重叠，但**会扫过同一片空间的两件要错开**（后缘边条先折、扇骨后收；翼尖鳍先下折到竖直、再随扇骨收）。
+  4. 跑 `.venv/bin/python blender/check.py --poses 41`：41 个姿态里不同刚体组的零件两两 `BVHTree.overlap`（同一关节链的件相对不动，不查；固定件之间的嵌入——轮毂、轴套、喷口——不算）；相邻姿态位移渐变（跳变检测）；剑形态里没有件整件藏进机身；最后列出每个动件全程的最小间隙。**0 穿模、0 跳变、0 藏进机身**才进下一步。
+  5. `blender/build.py --fast` + `node src/figure/build.mjs --assets=dist/fast --out=dist/fast.html` 看形，`PAGE_A=… PAGE_B=dist/fast.html LOOKS=B sh scripts/z2-review.sh <目录> sword` 出逐姿态图；定稿再全量烘焙。
+- 间隙约定：叠层件层间 4 mm（扇骨厚 3.6 cm、层距 4 cm）；动件离机身 ≥ 1 cm（鸭翼离下切面 4 cm 的缝就是“棱线槽”）；铰线放在零件根部的底面内沿，折下时零件厚度朝外。
+- 常见错误：轴向反了（零件往机身里折——check 从 v≈0.1 起就报穿模）；只看收拢后、不看中间姿态（翼尖鳍在收扇途中扫过后缘边条，只有逐姿态才查得出）；放平的进气门比斜板长（放平后顶到唇口）；在 `z2-review.sh` 还在跑时改它（sh 边读边执行，后面的命令会读乱）。
+- `[Codex]`（Z4）：照 DESIGN 10 的六个层次给每个化剑件加解锁 / 锁销 / 盖板（新件照上面 1～4 步接进关节与步骤，check 全过再交）；扇骨“肋”与轮毂的细节在 Z3 体积层定样后照样铺。
+
 ## 模板：<做法名称>
 
 - 适用于：哪些零件 / 哪类效果

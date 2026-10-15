@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>弧序 · 燭龍 · 版式样图</title>
+<style>
+  /* 静态版式样图（PAGE_LAYOUT，Z2）：只定信息结构与比例；图都是本仓库模型的截图，不是成品页面 */
+  :root {
+    --bg: #101518; --deck: #23292c; --ink: #dce9eb; --line: #8099a3; --cyan: #7bdbec; --amber: #f0bd83; --vermilion: #c8412c;
+    --dim: rgba(128, 153, 163, 0.45); --panel: rgba(16, 21, 24, 0.0);
+    --font: "WenQuanYi Zen Hei", "Noto Sans SC", "PingFang SC", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: var(--font); }
+  body { overflow: hidden; }
+  .sheet { position: relative; width: 100vw; height: 100vh; padding: 22px; }
+  /* 图纸外框：极细框线、四边中点刻度、四角对位记号 */
+  .frame { position: absolute; inset: 12px; border: 1px solid var(--dim); pointer-events: none; }
+  .frame i { position: absolute; background: var(--dim); }
+  .frame .t { left: 50%; top: -1px; width: 1px; height: 9px; } .frame .b { left: 50%; bottom: -1px; width: 1px; height: 9px; }
+  .frame .l { top: 50%; left: -1px; height: 1px; width: 9px; } .frame .r { top: 50%; right: -1px; height: 1px; width: 9px; }
+  .frame b { position: absolute; width: 14px; height: 14px; }
+  .frame b::before, .frame b::after { content: ""; position: absolute; background: var(--line); }
+  .frame b::before { left: 6px; top: 0; width: 1px; height: 14px; } .frame b::after { top: 6px; left: 0; height: 1px; width: 14px; }
+  .frame .c1 { left: -7px; top: -7px; } .frame .c2 { right: -7px; top: -7px; } .frame .c3 { left: -7px; bottom: -7px; } .frame .c4 { right: -7px; bottom: -7px; }
+
+  .grid { display: grid; grid-template-columns: 288px 1fr 300px; gap: 18px; height: 100%; }
+  .col { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+  .fig { font-size: 11px; letter-spacing: 0.2em; color: var(--line); }
+  h1 { margin: 2px 0 0; font-weight: 400; font-size: 46px; letter-spacing: 0.08em; line-height: 1; }
+  h1 small { font-size: 12px; letter-spacing: 0.4em; color: var(--line); margin-left: 10px; vertical-align: middle; }
+  .sub { font-size: 13px; color: var(--ink); opacity: 0.9; }
+  .intro { font-size: 12px; line-height: 1.7; color: var(--line); margin: 0; }
+  .key { font-size: 10px; letter-spacing: 0.25em; color: var(--line); margin-bottom: 6px; }
+  .main { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .btn { border: 1px solid var(--line); border-radius: 2px; padding: 9px 0; text-align: center; font-size: 14px; letter-spacing: 0.3em; }
+  .btn.on { border-color: var(--vermilion); color: #ffd9cf; box-shadow: inset 0 0 0 1px rgba(200, 65, 44, 0.35); }
+  .icons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .icon { border: 1px solid var(--dim); border-radius: 2px; padding: 7px 0 5px; text-align: center; font-size: 11px; color: var(--ink); }
+  .icon svg { display: block; margin: 0 auto 3px; width: 22px; height: 16px; stroke: var(--line); fill: none; stroke-width: 1.2; }
+  .icon.sel { border-color: var(--cyan); } .icon.sel svg { stroke: var(--cyan); }
+  .mach { position: relative; height: 34px; }
+  .mach .rail { position: absolute; left: 0; right: 0; top: 10px; height: 1px; background: var(--line); }
+  .mach .knob { position: absolute; left: 0; top: 4px; width: 12px; height: 12px; border: 1px solid var(--amber); background: var(--bg); transform: rotate(45deg); }
+  .mach span { position: absolute; top: 18px; font-size: 10px; color: var(--line); transform: translateX(-50%); }
+  .views { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .view { border: 1px solid var(--dim); height: 40px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; font-size: 10px; color: var(--line); padding-bottom: 3px; background: center 6px / 80% auto no-repeat; }
+  .view.sel { border-color: var(--cyan); color: var(--cyan); }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--dim); margin-top: 6px; font-size: 11px; text-align: center; }
+  .seg div { padding: 5px 0; } .seg .sel { background: rgba(123, 219, 236, 0.12); color: var(--cyan); }
+  .spec { margin-top: auto; border-top: 1px solid var(--dim); padding-top: 10px; font-size: 11px; color: var(--line); display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; }
+  .spec b { font-weight: 400; color: var(--ink); }
+  .readout { font-size: 11px; color: var(--amber); letter-spacing: 0.05em; margin-top: 6px; }
+
+  .stage { position: relative; min-height: 0; }
+  .stage img.hero { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .callout { position: absolute; font-size: 11px; color: var(--ink); white-space: nowrap; }
+  .callout .n { display: inline-grid; place-items: center; width: 18px; height: 18px; border: 1px solid var(--cyan); border-radius: 50%; font-size: 10px; color: var(--cyan); margin-right: 6px; background: var(--bg); }
+  svg.leaders { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  svg.leaders line { stroke: var(--cyan); stroke-width: 0.8; opacity: 0.8; } svg.leaders circle { fill: var(--cyan); }
+  .caption { position: absolute; left: 0; right: 0; bottom: 0; text-align: center; font-size: 11px; color: var(--line); }
+  .corner { position: absolute; right: 30px; bottom: 26px; font-size: 10px; letter-spacing: 0.25em; color: var(--line); }
+
+  .tv { position: relative; border: 1px solid var(--dim); padding: 18px 10px 10px; }
+  .tv .lab { position: absolute; left: 8px; top: 4px; font-size: 10px; letter-spacing: 0.2em; color: var(--line); }
+  .tv img { display: block; width: 100%; }
+  .tv .dim { position: absolute; font-size: 9px; color: var(--line); }
+  .details { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: auto; }
+  .detail { position: relative; border: 1px solid var(--dim); height: 74px; background: center / cover no-repeat; }
+  .detail span { position: absolute; left: 0; right: 0; bottom: 0; font-size: 10px; padding: 2px 6px; background: rgba(16, 21, 24, 0.75); }
+  .detail.todo { display: grid; place-items: center; color: var(--line); font-size: 10px; background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(128, 153, 163, 0.08) 6px 7px); }
+
+  /* 手机版：模型在上占满宽；左右两栏折进底部抽屉（演出 / 机构 / 视图 / 图纸）；引线只留编号 */
+  .drawer, .mtitle { display: none; }
+  @media (max-width: 1099px) {
+    .sheet { padding: 0; }
+    .frame { inset: 6px; }
+    .grid { display: block; position: relative; height: 100%; }
+    .grid > .left, .grid > .right { display: none; }
+    .mtitle { display: block; position: absolute; left: 18px; top: 16px; z-index: 2; }
+    .mtitle h1 { font-size: 30px; }
+    .stage { position: absolute; left: 0; right: 0; top: 70px; height: 48%; }
+    .callout .t { display: none; }
+    .caption { bottom: -22px; }
+    .corner { right: 16px; bottom: auto; top: 22px; }
+    .drawer { display: block; position: absolute; left: 0; right: 0; bottom: 0; height: 40%; border-top: 1px solid var(--dim); background: #0e1316; padding: 0 16px 16px; }
+    .tabs { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--dim); margin-bottom: 14px; }
+    .tabs div { text-align: center; padding: 11px 0; font-size: 13px; color: var(--line); }
+    .tabs .sel { color: var(--ink); box-shadow: inset 0 -2px 0 var(--vermilion); }
+    .drawer .col { gap: 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <div class="frame"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i><b class="c1"></b><b class="c2"></b><b class="c3"></b><b class="c4"></b></div>
+  <div class="grid">
+    <!-- 左栏：标题 · 演出 · 机构 · 马赫数 · 视图 · 规格 -->
+    <section class="col left">
+      <div>
+        <div class="fig">ARCSEQ / FIG.02</div>
+        <h1>燭龍<small>ZHULONG</small></h1>
+        <div class="sub" style="margin-top:8px">原创单座空天战机 · 可交互技术展品</div>
+      </div>
+      <p class="intro">停在不周「天门」的单座空天战机。大气层内睁眼；冲出大气层便闭眼化剑——主翼像折扇一样收拢，垂尾转平成剑格，一架飞机收成一把剑。</p>
+      <div><div class="key">演出</div><div class="main"><div class="btn">入轨</div><div class="btn on">化剑</div></div></div>
+      <div><div class="key">机构</div>
+        <div class="icons">
+          <div class="icon sel"><svg viewBox="0 0 22 16"><path d="M2 8 Q11 0 20 8 Q11 16 2 8Z"/><circle cx="11" cy="8" r="2.5"/></svg>睁眼</div>
+          <div class="icon"><svg viewBox="0 0 22 16"><path d="M3 9 L11 6 L19 9 L11 8Z"/></svg>鸭翼</div>
+          <div class="icon"><svg viewBox="0 0 22 16"><path d="M11 2 V11"/><circle cx="11" cy="13" r="2.2"/></svg>起落架</div>
+          <div class="icon"><svg viewBox="0 0 22 16"><path d="M3 11 H19 M5 11 L9 6 H19"/></svg>进气门</div>
+          <div class="icon"><svg viewBox="0 0 22 16"><path d="M3 5 H12 L20 8 L12 11 H3Z"/></svg>塞锥</div>
+          <div class="icon"><svg viewBox="0 0 22 16"><path d="M3 5 H15 L19 14"/></svg>翼尖鳍</div>
+          <div class="icon"><svg viewBox="0 0 22 16"><rect x="3" y="3" width="16" height="10"/><path d="M11 3 V13" stroke-dasharray="2 1.5"/></svg>剖视</div>
+          <div class="icon"><svg viewBox="0 0 22 16"><path d="M3 13 L11 3 L19 13Z M3 13 L11 8 L19 13 M11 3 V8"/></svg>线框</div>
+          <div class="icon"><svg viewBox="0 0 22 16"><rect x="3" y="6" width="5" height="4"/><rect x="14" y="6" width="5" height="4"/><path d="M8 8 H14" stroke-dasharray="1.5 1.5"/></svg>爆炸</div>
+        </div>
+      </div>
+      <div><div class="key">马赫数</div>
+        <div class="mach"><div class="rail"></div><div class="knob"></div><span style="left:2%">0</span><span style="left:34%">2.5</span><span style="left:67%">6</span><span style="left:96%">真空</span></div>
+      </div>
+      <div><div class="key">视图</div>
+        <div class="views"><div class="view sel" style="background-image:url(img/v-iso.png)">等轴</div><div class="view" style="background-image:url(img/v-side.png)">侧</div><div class="view" style="background-image:url(img/v-front.png)">正</div><div class="view" style="background-image:url(img/v-top.png)">顶</div></div>
+        <div class="seg"><div class="sel">质感</div><div>图纸</div></div>
+      </div>
+      <div class="spec">
+        <span>型号</span><b>FIG.02 燭龍 · 单座</b>
+        <span>全长</span><b>19.1 m</b>
+        <span>翼展</span><b>10.6 m（剑形态剑格 7.5 m）</b>
+        <span>全高</span><b>3.9 m</b>
+        <span>当前形态</span><b>大气形态</b>
+        <span>三角形</span><b>外形 6.6 万</b>
+      </div>
+      <div class="readout">副驾驶：天门滑轨就绪 · 锁定 0 / 12</div>
+    </section>
+
+    <!-- 中：模型 + 编号引线（地标点 → 屏幕坐标，随转动跟着走） -->
+    <section class="stage">
+      <img class="hero" src="img/hero.png" alt="">
+      <svg class="leaders" id="leaders"></svg>
+      <div id="callouts"></div>
+      <div class="caption">本作品为原创构想机，与任何官方机构或影视、游戏作品无关。</div>
+    </section>
+
+    <!-- 右栏：从当前模型实时生成的三视图（带尺寸线）+ 四个特写入口 -->
+    <section class="col right">
+      <div class="key">三视图 · 大气形态</div>
+      <div class="tv"><span class="lab">侧</span><img src="img/t-side.png" alt=""><span class="dim" style="left:10px;bottom:-1px">← 19 140 →</span></div>
+      <div class="tv"><span class="lab">正</span><img src="img/t-front.png" alt=""><span class="dim" style="right:8px;top:4px">10 580</span></div>
+      <div class="tv"><span class="lab">顶</span><img src="img/t-top.png" alt=""></div>
+      <div class="key" style="margin-top:6px">特写</div>
+      <div class="details">
+        <div class="detail" style="background-image:url(img/d-cockpit.png)"><span>1 · 驾驶舱</span></div>
+        <div class="detail todo">2 · 烛心（Z5）</div>
+        <div class="detail" style="background-image:url(img/d-hub.png)"><span>3 · 化剑关节</span></div>
+        <div class="detail" style="background-image:url(img/d-scales.png)"><span>4 · 鳞片瓦</span></div>
+      </div>
+    </section>
+  </div>
+  <div class="mtitle"><div class="fig">ARCSEQ / FIG.02</div><h1>燭龍<small>ZHULONG</small></h1></div>
+  <div class="drawer">
+    <div class="tabs"><div class="sel">演出</div><div>机构</div><div>视图</div><div>图纸</div></div>
+    <div class="col">
+      <div class="main"><div class="btn">入轨</div><div class="btn on">化剑</div></div>
+      <div><div class="key">马赫数</div><div class="mach"><div class="rail"></div><div class="knob"></div><span style="left:2%">0</span><span style="left:34%">2.5</span><span style="left:67%">6</span><span style="left:96%">真空</span></div></div>
+      <div class="readout">大气形态 · 锁定 0 / 12 · 19.1 m</div>
+    </div>
+  </div>
+  <div class="corner">ARCSEQ / FIG.02</div>
+</div>
+<script>
+  // 编号引线：CALLOUTS 里是地标点在 hero.png 上的像素位置（截图时 __arcseq.project 量出），按图片 contain 后的位置画
+  function draw() {
+    const CALLOUTS = window.CALLOUTS || [], IMG = window.HERO_SIZE || [2320, 1736];
+    const stage = document.querySelector(".stage"), W = stage.clientWidth, H = stage.clientHeight;
+    const k = Math.min(W / IMG[0], H / IMG[1]), ox = (W - IMG[0] * k) / 2, oy = (H - IMG[1] * k) / 2;
+    const svg = document.getElementById("leaders"), box = document.getElementById("callouts");
+    svg.innerHTML = ""; box.innerHTML = "";
+    CALLOUTS.forEach((c, i) => {
+      const x = ox + c.at[0] * k, y = oy + c.at[1] * k, lx = ox + c.label[0] * k, ly = oy + c.label[1] * k;
+      svg.insertAdjacentHTML("beforeend", `<line x1="${x}" y1="${y}" x2="${lx}" y2="${ly}"/><circle cx="${x}" cy="${y}" r="2"/>`);
+      box.insertAdjacentHTML("beforeend", `<div class="callout" style="left:${lx - 9}px;top:${ly - 9}px"><span class="n">${i + 1}</span><span class="t">${c.text}</span></div>`);
+    });
+  }
+  addEventListener("resize", draw);
+  addEventListener("load", draw);
+</script>
+<script src="callouts.js"></script>
+</body>
+</html>

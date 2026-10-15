@@ -14,7 +14,7 @@ import bpy
 from mathutils import Matrix, Vector
 
 from kit.finish import finish
-from kit.parts import connector, cylinder, hull, new_object, pipe
+from kit.parts import connector, cylinder, hull, lathe, new_object, pipe
 
 from .util import XN, at, boolean, lerp, mirror_object
 
@@ -502,32 +502,43 @@ def mirror_lines(data):
     return out
 
 
+CANARD_HINGE = None  # 鸭翼铰线两端（canards() 填）：airframe 据此写关节
+CANARD_FOLD = 115.0  # 化剑下折角（度）：贴住棱线下的下切面（DESIGN 8.8）
+CANARD_GAP = 0.04  # 根弦离下切面 4 cm：这条缝就是“棱线槽”，折下后鸭翼中面离下切面 3.5 cm
+
+
 def canards():
-    """鸭翼（C2 俯视：根弦 s 5.35～6.5，梢弦 6.2～6.45，展长 0.65 m；侧视在棱线下方）+ 转轴整流包。"""
+    """鸭翼（C2 俯视：根弦 s 5.35～6.5，梢弦 6.2～6.45，展长约 0.65 m；侧视在棱线下方）+ 铰线两端的轴套整流。
+
+    Z2：根弦顺着下切面那条线、离面 4 cm（棱线槽），铰线就在根弦中面上；化剑时绕铰线下折 115°，贴住下切面。
+    """
+    global CANARD_HINGE
     out = []
     zc = ring(6.0)["R2"][1] - 0.03
 
-    def yroot(s):
+    def yface(s):
         R = ring(s)
         f = (R["R2"][1] - zc) / (R["R2"][1] - R["R3"][1])
-        return lerp(R["R2"][0], R["R3"][0], f) - 0.025
+        return lerp(R["R2"][0], R["R3"][0], f)
 
+    y_tip = yface(6.0) - 0.025 + 0.65  # 梢弦位置同 Z1
     P = []
-    for s_le, s_te, span, th in ((5.35, 6.5, 0.0, 0.05), (6.2, 6.45, 0.65, 0.016)):
-        y = yroot(6.0) + span
+    for s_le, s_te, tip, th in ((5.35, 6.5, False, 0.05), (6.2, 6.45, True, 0.016)):
         m = (s_le + s_te) / 2
-        P += [at(s_le, y, zc), at(s_te, y, zc), at(m, y, zc + th / 2), at(m, y, zc - th / 2)]
+        y = (lambda s: y_tip) if tip else (lambda s: yface(s) + CANARD_GAP)
+        P += [at(s_le, y(s_le), zc), at(s_te, y(s_te), zc), at(m, y(m), zc + th / 2), at(m, y(m), zc - th / 2)]
     left = []
     o, l = hull("canard.l", P, "hull", {"skin": "canard.l", "joint": "canard.l"}, bevel=0.006)
     EDGES[o.name] = l
     left.append(o)
-    # 转轴整流：根部中弦下方一只扁梭形包（长 0.42、宽 0.09、高 0.07）
-    s = 5.95
-    y = yroot(s) + 0.01
-    pod = [at(s + ds, y + dy, zc + dz) for ds, dy, dz in ((0.21, 0, -0.01), (-0.21, 0, -0.01), (0, 0.045, -0.02), (0, 0.045, -0.06), (0, -0.04, -0.06), (0.1, 0.035, -0.045), (-0.1, 0.035, -0.045), (0, 0.0, 0.0))]
-    o2, l2 = hull("canard.fairing.l", pod, "hull", {"skin": "canard.fairing.l"}, bevel=0.01)
-    EDGES[o2.name] = l2
-    left.append(o2)
+    a, b = at(5.35, yface(5.35) + CANARD_GAP, zc), at(6.5, yface(6.5) + CANARD_GAP, zc)
+    CANARD_HINGE = (a, b)
+    # 铰线两端的轴套整流：顺着铰线的小梭子，半嵌在下切面上（不动）
+    ax = (b - a).normalized()
+    for name, c0, c1 in (("canard.fairing.l", a - ax * 0.17, a - ax * 0.015), ("canard.fairing2.l", b + ax * 0.015, b + ax * 0.15)):
+        o2, l2 = lathe(name, c0, c1, [(0, 0.0), (0.35, 0.03), (0.8, 0.03), (1, 0.018)], sides=12, material="hull", props={"skin": name})
+        EDGES[o2.name] = l2
+        left.append(o2)
     for o in left:
         out.append(o)
         r = mirror_object(o, o.name.replace(".l", ".r"))
@@ -752,9 +763,9 @@ def tiles():
     return out, count
 
 
-def stand():
-    s = 4.0
-    zb = ring(s)["R3"][1]
+def stand(s=4.0, zb=None):
+    """停机托架（占位，DESIGN 7.2 的天门弹射托架在 Z3 起做）：Z2 起整机放在 s 11.8（进气道之后、重心附近）。"""
+    zb = ring(s)["R3"][1] if zb is None else zb
     out = []
     o, l = hull("stand.post", [at(s + ds * a, dy * b, z) for ds, dy, z in ((0.1, 0.1, 0.0), (0.05, 0.05, zb - 0.05)) for a in (1, -1) for b in (1, -1)], "stand", {"skin": "stand.post"}, bevel=0.008)
     EDGES[o.name] = l
@@ -858,6 +869,20 @@ def ball_mask(c, r):
     return planes
 
 
+def rear_ring_lines(data):
+    """Z2：机头段后端面接上中后机身，后端那一圈不再是外轮廓：端面那一侧的法线换成侧面的，降为一圈结构缝。"""
+    x0 = XN - S_END
+    out = list(data)
+    for i in range(0, len(out), 12):
+        if abs(out[i] - x0) < 0.04 and abs(out[i + 3] - x0) < 0.04:
+            n1, n2 = out[i + 6:i + 9], out[i + 9:i + 12]
+            if abs(n1[0]) > 0.95:
+                out[i + 6:i + 9] = n2
+            elif abs(n2[0]) > 0.95:
+                out[i + 9:i + 12] = n1
+    return out
+
+
 def build():
     EDGES.clear()
     objs = []
@@ -868,7 +893,7 @@ def build():
     for c in slot_cutter():
         boolean(b, c, "DIFFERENCE")
     assign_body_materials(b)
-    EDGES[b.name] = finish(b, bevel=0.03, angle=30)
+    EDGES[b.name] = rear_ring_lines(finish(b, bevel=0.03, angle=30))
     objs.append(b)
     objs += eye()
     objs += shield()
@@ -881,7 +906,6 @@ def build():
     objs += inlay()
     t, n_tiles = tiles()
     objs += t
-    objs += stand()
     c = eye_centre()
     meta = {
         "offset": [-(XN - S_END / 2), 0, 0],

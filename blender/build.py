@@ -20,7 +20,7 @@ sys.path.insert(0, HERE)
 
 import bpy  # noqa: E402
 
-from zl import bake, interior, nose, section, util  # noqa: E402
+from zl import airframe, bake, interior, nose, section, util  # noqa: E402
 
 
 def arg(name, default=None):
@@ -55,6 +55,15 @@ def main():
         if o.name == "nose.body":
             o["section"] = "inside"
     print("cut:", " ".join(sorted(spans)))
+    # Z2 整机：中后机身、折扇主翼、边条、翼尖鳍、垂尾、喷口、塞锥、进气门、托架（剖视时不画：剖视仍是机头段 K1）
+    af, af_edges, af_meta = airframe.build()
+    ext += af
+    meta["edges"].update(af_edges)
+    meta["joints"] += af_meta["joints"]
+    meta["controls"] = af_meta["controls"]
+    meta["landmarks"].update(af_meta["landmarks"])
+    meta["focus"].update(af_meta["focus"])
+    meta["offset"] = [-(util.XN - airframe.L_TOTAL / 2), 0, 0]
     pairs, callouts = interior.build()
     inner = [o for o, _ in pairs]
     meta["edges"].update({o.name: l for o, l in pairs})

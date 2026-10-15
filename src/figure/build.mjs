@@ -62,7 +62,7 @@ async function geometry() {
     mesh: { pack: packMesh(ext, edgeOf) },
     modules: inner.length ? { interior: { pack: packMesh(inner, edgeOf), seams: M.interiorSeams ?? [] } } : {},
     tris: { exterior: ext.reduce((n, p) => n + p.f.length / 4, 0), interior: inner.reduce((n, p) => n + p.f.length / 4, 0) },
-    seams: M.seams ?? [], landmarks: M.landmarks ?? {}, joints: M.joints ?? [], offset: M.offset ?? [0, 0, 0], detail, focus: M.focus, masks: M.masks ?? [], callouts: M.callouts ?? [],
+    seams: M.seams ?? [], landmarks: M.landmarks ?? {}, joints: M.joints ?? [], controls: M.controls ?? [], offset: M.offset ?? [0, 0, 0], detail, focus: M.focus, masks: M.masks ?? [], callouts: M.callouts ?? [],
   };
 }
 const G = await geometry();
@@ -227,6 +227,8 @@ const CONTROLS = VARIANT === "empty" ? [] : [
   { id: "chine", label: "朱红棱线", range: [0, 1], rest: 0, time: 1.6, power: "chine", unit: "%" },
   { id: "chine.sweep", label: "棱线点亮", range: [0, 1], rest: 0, time: 1.6, sweep: "chine.sweep", linear: true, unit: "%" },
   { id: "sensor", label: "烛光窗", range: [0, 1], rest: 0, time: 1.0, power: "sensor", unit: "%" },
+  // Z2：化剑（几何母版 blender/zl/airframe.py 的 sword_steps：鸭翼、边条、翼尖鳍、折扇主翼、后缘边条、垂尾、进气门）
+  ...(G.controls ?? []).map((c) => ({ ...c, unit: "%" })),
 ];
 const SHOWS = VARIANT === "empty" ? [] : [
   { id: "wake", label: "睁眼", prepare: true, steps: [
@@ -276,11 +278,11 @@ const DATA = {
   pairs: [],
   shows: SHOWS,
   lights: [],
-  labels: [["^nose", "机头"], ["^sensor", "烛光窗"], ["^canopy\\.glass", "座舱盖"], ["^canopy", "座舱盖框"], ["^brow", "眉骨"], ["^chine", "棱线边条"], ["^scale", "鳞片防热瓦"], ["^rcs", "姿态推进器"], ["^shield", "遮光盾滑轨"]],
+  labels: [["^nose", "机头"], ["^aft", "中后机身"], ["^wing\\.hub", "主翼回转轴"], ["^wing", "主翼扇骨"], ["^strake", "前边条"], ["^fillet", "后缘边条"], ["^fin", "翼尖鳍"], ["^tail", "垂尾（剑格）"], ["^nozzle", "二元喷口"], ["^plug", "塞锥"], ["^intake", "进气门"], ["^stand", "托架"], ["^sensor", "烛光窗"], ["^canopy\\.glass", "座舱盖"], ["^canopy", "座舱盖框"], ["^brow", "眉骨"], ["^chine", "棱线边条"], ["^scale", "鳞片防热瓦"], ["^rcs", "姿态推进器"], ["^shield", "遮光盾滑轨"]],
   phoneView: { zoom: 1.12, centre: 0.5 },
 };
 
-const LABEL = "机库转台上的一架原创单座空天战机「烛龙」的机头段视觉样板。";
+const LABEL = "机库转台上的一架原创单座空天战机「烛龙」（整机体积样板，可一键化剑）。";
 const stage = `<div class="af-stage" data-mode="lines" tabindex="0" role="slider" aria-label="${LABEL} 拖动或用方向键旋转；按 1 剪影 2 体积 3 线稿" aria-valuemin="0" aria-valuemax="359" aria-valuenow="30" aria-valuetext="机位 30°"><canvas class="af-canvas"></canvas><svg class="af-overlay" data-callouts aria-hidden="true"></svg><div class="af-legend" data-legend hidden></div></div>`;
 const chip = (attr, label) => `<button type="button" class="af-chip" ${attr}>${label}</button>`;
 const consoleHtml = `<section class="af-console" aria-label="控制台"><div class="af-actions">
