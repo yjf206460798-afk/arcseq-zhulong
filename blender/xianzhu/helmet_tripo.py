@@ -263,6 +263,7 @@ def sunvisor_keys(o, pivot, deg=STOW_DEG, shrink=STOW_SHRINK):
     o.shape_key_add(name="Basis")
     down = o.shape_key_add(name="down")
     down.data.foreach_set("co", V.ravel())
+    down.value = 0.0  # Blender 5.2 新建形态键默认值是 1
     R = Matrix.Rotation(math.radians(deg), 3, "Y")  # 绕 +y 转正角：前方的点往上走（x → z）
     R = R.transposed() if (R @ Vector((1, 0, 0))).z < 0 else R
     P = Vector(pivot)
