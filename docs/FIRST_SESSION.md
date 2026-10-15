@@ -1,7 +1,7 @@
 # 第一次会话的任务描述（复制到云端新会话）
 
 ```
-读 CLAUDE.md、docs/DESIGN.md、docs/ROADMAP.md、docs/WORKFLOW.md、docs/VISUAL_TARGET.md，再看 refs/concept/ 里的全部概念图。
+读 CLAUDE.md、docs/DESIGN.md、docs/ROADMAP.md、docs/WORKFLOW.md、docs/VISUAL_TARGET.md，再看 refs/concept/ 里的全部概念图，以及 refs/layout/ 的总布置图和发动机图（先读该目录 README）。
 
 完成 Z0：从 yjf206460798-afk/arcseq-hangar 的 main 复制 Three.js 引擎（按 CLAUDE.md「技术」一节），读那边的 docs/PATTERNS.md；删去歼-20 专用数据，空场景能构建、能截图；列出概念图三视图之间的矛盾和取舍，追加到 DESIGN 第 8 节。
 
