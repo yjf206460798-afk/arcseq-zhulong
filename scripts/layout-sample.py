@@ -69,12 +69,21 @@ for (name, _), (x, y), (dx, dy) in zip(pts.items(), proj, offsets):
     callouts.append({"text": name, "at": [round(X), round(Y)], "label": [round(X + dx), round(Y + dy)]})
 open(os.path.join(OUT, "callouts.js"), "w").write(f"window.HERO_SIZE = [{W}, {H}];\nwindow.CALLOUTS = {json.dumps(callouts, ensure_ascii=False)};\n")
 # 右栏三视图（A）与左栏视图按钮
+# 机体外廓的极点（模型坐标）：按它们的投影裁三视图，地台与背景只留一圈边
+EXTREMES = [[9.5, 0, 1.65], [-9.64, 0, 1.88], [-4.2, 5.3, 1.7], [-4.2, -5.3, 1.7], [-4.8, 5.3, 0.75], [-4.8, -5.3, 0.75], [-7.0, 2.6, 4.6], [-7.0, -2.6, 4.6], [-8.7, 2.6, 4.6], [-8.7, -2.6, 4.6], [0, 0, 0.66], [-2, 0, 2.95], [-6, 1.6, 0.9], [-6, -1.6, 0.9]]
 for name, view in (("side", "__arcseq.view(90, 'lines', 0)"), ("front", "__arcseq.view(0, 'lines', 0)"), ("top", "__arcseq.view(90, 'lines', 90)"), ("iso", "__arcseq.view(30, 'lines', 30)")):
     raw = os.path.join(TMP, f"{name}.png")
-    shot(A, raw, view)
+    acts = [["wait", 500], ["eval", "__arcseq.resolution(2)"], ["eval", view], ["wait", 300],
+            ["eval", f"JSON.stringify({json.dumps(EXTREMES)}.map((p) => __arcseq.project(p)))"], ["shot", raw, ".af-stage", 2]]
+    pp = json.loads(drive(os.path.join(ROOT, A), acts, "--height", "1000")[-1])
+    xs, ys = [p[0] * 2 for p in pp], [p[1] * 2 for p in pp]
+    im = Image.open(raw).convert("RGB")
+    pad = 24
+    box = (max(int(min(xs)) - pad, 0), max(int(min(ys)) - pad, 0), min(int(max(xs)) + pad, im.width), min(int(max(ys)) + pad, im.height))
+    im = im.crop(box)
     if name != "iso":
-        autocrop(raw, os.path.join(IMG, f"t-{name}.png"), width=560)
-    autocrop(raw, os.path.join(IMG, f"v-{name}.png"), width=120)
+        im.resize((560, round(im.height * 560 / im.width)), Image.LANCZOS).save(os.path.join(IMG, f"t-{name}.png"))
+    im.resize((120, round(im.height * 120 / im.width)), Image.LANCZOS).save(os.path.join(IMG, f"v-{name}.png"))
 # 特写入口
 shot(B, os.path.join(TMP, "hub.png"), "__arcseq.view(40, 'lines', 35);__arcseq.focus('wing.pivot.l', 5)", pre="__arcseq.set('sword', 0.5)")
 for name, src in (("cockpit", "review/20261015-Z1-replica4/CLOSE-B-lines-az090-4x-cockpit-cut.png"), ("scales", "review/20261015-Z1-replica4/CLOSE-B-lines-az060-4x-details.png"), ("hub", os.path.join(TMP, "hub.png"))):
@@ -85,5 +94,8 @@ for name, src in (("cockpit", "review/20261015-Z1-replica4/CLOSE-B-lines-az090-4
 # 桌面与手机两张
 page = os.path.join(OUT, "layout.html")
 drive(page, [["wait", 800], ["shot", os.path.join(OUT, "LAYOUT-desktop.png"), ".sheet", 1]], "--width", "1440", "--height", "900")
-drive(page, [["wait", 800], ["shot", os.path.join(OUT, "LAYOUT-mobile.png"), ".sheet", 2]], "--width", "390", "--height", "844")
+# 手机：drive.mjs 的移动模拟下，截图区域按设备像素比放大但内容按 1× 画在左上角——裁回来再放大
+mobile = os.path.join(OUT, "LAYOUT-mobile.png")
+drive(page, [["wait", 800], ["shot", mobile, ".sheet", 1]], "--width", "390", "--height", "844", "--scale", "2")
+Image.open(mobile).crop((0, 0, 394, 848)).resize((788, 1696), Image.LANCZOS).save(mobile)  # 内容只画在左上 1× 区域
 print("ok", callouts)

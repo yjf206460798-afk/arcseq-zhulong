@@ -43,7 +43,7 @@
   .mach { position: relative; height: 34px; }
   .mach .rail { position: absolute; left: 0; right: 0; top: 10px; height: 1px; background: var(--line); }
   .mach .knob { position: absolute; left: 0; top: 4px; width: 12px; height: 12px; border: 1px solid var(--amber); background: var(--bg); transform: rotate(45deg); }
-  .mach span { position: absolute; top: 18px; font-size: 10px; color: var(--line); transform: translateX(-50%); }
+  .mach span { position: absolute; top: 18px; font-size: 10px; color: var(--line); transform: translateX(-50%); white-space: nowrap; }
   .views { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
   .view { border: 1px solid var(--dim); height: 40px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; font-size: 10px; color: var(--line); padding-bottom: 3px; background: center 6px / 80% auto no-repeat; }
   .view.sel { border-color: var(--cyan); color: var(--cyan); }
@@ -60,13 +60,14 @@
   svg.leaders { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   svg.leaders line { stroke: var(--cyan); stroke-width: 0.8; opacity: 0.8; } svg.leaders circle { fill: var(--cyan); }
   .caption { position: absolute; left: 0; right: 0; bottom: 0; text-align: center; font-size: 11px; color: var(--line); }
-  .corner { position: absolute; right: 30px; bottom: 26px; font-size: 10px; letter-spacing: 0.25em; color: var(--line); }
+  .corner { display: none; position: absolute; font-size: 10px; letter-spacing: 0.25em; color: var(--line); }
 
   .tv { position: relative; border: 1px solid var(--dim); padding: 18px 10px 10px; }
   .tv .lab { position: absolute; left: 8px; top: 4px; font-size: 10px; letter-spacing: 0.2em; color: var(--line); }
-  .tv img { display: block; width: 100%; }
+  .tv img { display: block; width: 100%; max-height: 150px; object-fit: contain; }
   .tv .dim { position: absolute; font-size: 9px; color: var(--line); }
   .details { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: auto; }
+  .tv .dim.sword { color: var(--amber); }
   .detail { position: relative; border: 1px solid var(--dim); height: 74px; background: center / cover no-repeat; }
   .detail span { position: absolute; left: 0; right: 0; bottom: 0; font-size: 10px; padding: 2px 6px; background: rgba(16, 21, 24, 0.75); }
   .detail.todo { display: grid; place-items: center; color: var(--line); font-size: 10px; background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(128, 153, 163, 0.08) 6px 7px); }
@@ -74,17 +75,19 @@
   /* 手机版：模型在上占满宽；左右两栏折进底部抽屉（演出 / 机构 / 视图 / 图纸）；引线只留编号 */
   .drawer, .mtitle { display: none; }
   @media (max-width: 1099px) {
-    .sheet { padding: 0; }
+    html, body { height: auto; }
+    body { overflow: visible; }
+    .sheet { padding: 0; height: 844px; }
     .frame { inset: 6px; }
     .grid { display: block; position: relative; height: 100%; }
     .grid > .left, .grid > .right { display: none; }
     .mtitle { display: block; position: absolute; left: 18px; top: 16px; z-index: 2; }
     .mtitle h1 { font-size: 30px; }
-    .stage { position: absolute; left: 0; right: 0; top: 70px; height: 48%; }
+    .stage { position: absolute; left: 0; right: 0; top: 84px; height: 400px; }
     .callout .t { display: none; }
-    .caption { bottom: -22px; }
-    .corner { right: 16px; bottom: auto; top: 22px; }
-    .drawer { display: block; position: absolute; left: 0; right: 0; bottom: 0; height: 40%; border-top: 1px solid var(--dim); background: #0e1316; padding: 0 16px 16px; }
+    .caption { bottom: -26px; }
+    .corner { display: none; }
+    .drawer { display: block; position: absolute; left: 0; right: 0; bottom: 0; height: 320px; border-top: 1px solid var(--dim); background: #0e1316; padding: 0 16px 16px; }
     .tabs { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--dim); margin-bottom: 14px; }
     .tabs div { text-align: center; padding: 11px 0; font-size: 13px; color: var(--line); }
     .tabs .sel { color: var(--ink); box-shadow: inset 0 -2px 0 var(--vermilion); }
@@ -150,8 +153,7 @@
       <div class="tv"><span class="lab">侧</span><img src="img/t-side.png" alt=""><span class="dim" style="left:10px;bottom:-1px">← 19 140 →</span></div>
       <div class="tv"><span class="lab">正</span><img src="img/t-front.png" alt=""><span class="dim" style="right:8px;top:4px">10 580</span></div>
       <div class="tv"><span class="lab">顶</span><img src="img/t-top.png" alt=""></div>
-      <div class="key" style="margin-top:6px">特写</div>
-      <div class="details">
+      <div class="details"><div class="key" style="grid-column:1/-1;margin:0">特写</div>
         <div class="detail" style="background-image:url(img/d-cockpit.png)"><span>1 · 驾驶舱</span></div>
         <div class="detail todo">2 · 烛心（Z5）</div>
         <div class="detail" style="background-image:url(img/d-hub.png)"><span>3 · 化剑关节</span></div>
