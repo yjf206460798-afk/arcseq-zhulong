@@ -16,6 +16,8 @@
 | 发动机爆炸图 | `refs/layout/E3_发动机爆炸图.png` | PE3 |
 | 发动机三模式 | `refs/layout/E4_发动机三模式.png` | PE4 |
 | 驾驶舱侧剖 | `refs/layout/K1_驾驶舱侧剖.png` | PK1 + 修改一轮 |
+| 大气形态三视图 · 分色建模用图 | `refs/concept/C2_大气形态三视图_分色.png`（+ calib、叠图） | 建模用图 B |
+| 剑形态三视图 · 分色建模用图 | `refs/concept/C3_剑形态三视图_分色.png`（+ calib、叠图） | 建模用图 B + C3 专用开头 |
 | 飞行员服「銜燭」设定图 | `refs/concept/X1_衔烛设定图.png` | PX1（取舍见 DESIGN 9.1.1「概念图」） |
 
 ### P1 · 剪影探索
@@ -139,19 +141,81 @@ Small mode label and a 3-item status line on each panel (e.g. "FANS DEPLOYED / R
 ## 待用（可选，不影响开工）
 
 ### 建模用图（在已定稿的参考图上做图片编辑，配合 WORKFLOW「拆图」）
+
+每次只附一张图、只编辑一张。三套固定配色（拆零件表的脚本按这三张色表认颜色，**不要改**）：
+
+**A · 内部图**（K1、L0、E1、E2、E4；E3 可选）
 ```
-Edit the attached drawing into a flat MODELING REFERENCE with exactly the same content, composition and part positions. Do not move, resize, add or remove any part. Remove all text, numbers, callouts, leader lines, legends, scale bars, glows, reflections and shading. Draw every part as a flat solid fill with a thin black outline, color-coded by type:
-- fuselage skin and structural frames: light gray
-- boxes, electronics and tanks: green
-- pipes, ducts and cable bundles: blue
-- mechanisms, actuators, hinges and rails: orange
-- seats, pilot and helmet: purple
+Edit the attached drawing into a flat MODELING REFERENCE with exactly the same content, composition and part positions. Do not move, resize, add or remove any part. Keep every view and panel of the sheet in the same place and size (main views, small inset views, section panels).
+
+Remove all text, titles, numbers, numbered callouts, leader lines, legend boxes, scale bars, dashed motion paths, arrows, flow streamlines and decorative thumbnails. Remove all glows, reflections, gradients and shading.
+
+Draw every part as a flat solid fill with a thin black outline, color-coded by type:
+- fuselage skin, structural frames, floors and brackets: light gray
+- boxes, electronics, avionics, batteries and tanks: green
+- air intake ducts and plenums: pale blue
+- pipes, hoses and cable bundles: blue
+- mechanisms, actuators, hinges, rails, valves and doors: orange
+- engine core casing and coil windings: red
+- fans and any rotating blades: pink
+- nozzles and the central plug: dark gray
+- seat, pilot and helmet: purple
 - glass and displays: cyan
-- glowing elements (sensor window, plasma, lights): yellow
+- glowing elements (sensor window, plasma channel, lights): yellow
 - wheels and landing gear: brown
+
 Pure white background. Strictly orthographic, no perspective. Keep the image size and framing identical to the original.
 ```
-用法：出图后与原图 50% 叠图，零件偏移超过约 2% 画幅就不用。
+
+**B · 外形图**（C2 大气形态三视图、C3 剑形态三视图）
+```
+Edit the attached three-view drawing into a flat MODELING REFERENCE with exactly the same views, composition, outlines and part positions. Do not move, resize, add or remove any part; keep the top, side and front views in exactly the same places and sizes.
+
+Remove all text, labels, dimension lines, panel lines, rivets, scale patterns, glows, reflections and shading. Draw every part as a flat solid fill with a thin black outline, color-coded:
+- main fuselage body and engine block: light gray
+- main wings: green
+- canards: dark green
+- vertical tails and wingtip fins: blue
+- canopy glass: cyan
+- brow ridge and heat-shield track: purple
+- intake opening and intake doors: orange
+- nozzles and the central plug: dark gray
+- nose sensor eye: yellow
+- the thin chine line: red (keep it as a thin line)
+- belly thermal-tile area (as one flat region, no tile pattern): brown
+- hinge and fold lines of moving parts: thin black dashed lines
+
+Pure white background. Strictly orthographic. Keep the image size and framing identical to the original.
+```
+
+**C · 人物与服装**（X1 銜燭设定图）
+```
+Edit the attached suit concept sheet into a flat MODELING REFERENCE with exactly the same figures, panels, poses and part positions. Do not move, resize, add or remove anything; keep every panel (soft mode, armored mode, helmet details, exploded layers, connector close-up) in the same place and size.
+
+Remove all text, titles, numbers, callouts, legends, the name logo and the small aircraft drawing. Remove all glows, reflections, gradients and shading. Draw every part as a flat solid fill with a thin black outline, color-coded:
+- base suit fabric: light gray
+- anti-G bladders: green
+- harness and straps, buckles: orange
+- scale plates: blue
+- helmet shell: purple
+- visors: cyan (clear visor) and yellow (gold sun visor)
+- the spine line: red
+- umbilical connector, hoses and boots: brown
+- liquid-cooling tube network: pale blue
+- face and exposed skin: white
+
+Pure white background. Strictly orthographic. Keep the image size and framing identical to the original.
+```
+
+**C3 剑形态专用开头**（B 段前面加这一段，否则 GPT 容易拿上一张大气形态的图当底图）：
+```
+The attached image is the SWORD MODE three-view of the aircraft: a long, narrow blade-like body with NO spread wings. The main wings are folded back flush against the sides of the rear body, and the two tails stick out sideways near the rear as a horizontal crossguard. If your output shows spread wings or upright tails in the top view, it is wrong — use ONLY the attached image as the base.
+```
+剑形态配色在 B 表基础上改：折叠后的主翼（贴在后机身两侧的窄带）绿、剑格（转平的两片垂尾）蓝、盖住座舱的遮光盾紫、前视两块闭合进气门橙；不出现鸭翼和座舱玻璃。
+
+**每张图新开一个 GPT 对话、只附那一张**：同一对话里做图片编辑，GPT 常拿它上一张生成图当底图。
+
+用法：出图后由 Claude 与原图做 50% 叠图和锚点标定（`<图名>_分色.calib.json`），锚点残差都 ≤ 2% 画幅才用；画幅被改过就按轴分别换算（见 K1 的 calib）。
 
 ### P5 · 主视觉
 ```
@@ -174,6 +238,21 @@ RIGHT COLUMN — HELMET detail in two states side by side: "OPEN EYE" clear viso
 BOTTOM ROW — EXPLODED LAYERS from inside out, pulled apart along a vertical axis with thin dashed assembly lines: 1 liquid-cooling undergarment with a fine tube network, 2 anti-G bladder layer, 3 restraint layer, 4 scale-armor outer layer, 5 double-visor helmet; plus a small close-up of 6 the umbilical connector (oxygen, cooling, power, data) plugging into the seat.
 
 Numbered callouts 1–6, each used once, small legend at bottom right. Small text "銜燭" on the left chest patch. Corner text "ARCSEQ / FIG.02". No slogans or other text. Original design: must not resemble any suit, armor or pilot outfit from films, games, anime or comics.
+```
+
+### PS1 · 地台：天门弹射托架（附 C2 定稿三视图）
+```
+Concept design sheet for an ORIGINAL launch cradle and stage for the "Zhulong" aerospace fighter (attached three-view), set inside a launch bay on an orbital megastructure 100 km above the Earth. One sheet, dark blue-black background, industrial vector illustration, ultra-fine hierarchical pale cyan-white linework, muted blue-grey structural lines, flat precise shading, no photorealism.
+
+The stage: a round rotating turntable set into the start of a long electromagnetic launch rail. Two parallel rails with a row of coil segments between them run forward from the turntable toward a giant two-leaf airlock door. On the turntable sits a launch sled that holds the aircraft with four clamp arms (two front, two rear), a power umbilical plugged into the belly, and a blast deflector behind the tail. Floor markings: center line, alignment marks and a bay number plate with the small text "天門 · 四層 · 彈射位 3".
+
+Layout:
+TOP — a large three-quarter view from above-left: the aircraft (as in the attached three-view, parked, canopy open) on the sled, the turntable rotated to align with the rail, the rail stretching to the closed airlock door; cool white bay lights along the rail; the coil segments unlit.
+MIDDLE LEFT — TOP VIEW of the turntable and the first part of the rail with the sled (aircraft drawn as a thin outline only).
+MIDDLE RIGHT — SIDE VIEW of the sled with clamp arms closed and open, the umbilical attached and released.
+BOTTOM — three small frames of the launch: 1 turntable aligned, clamps released; 2 airlock door opening onto black sky, stars and the curved Earth below; 3 coil segments lighting up in sequence from cyan to vermilion as the sled accelerates.
+
+Restrained colors: only the bay lights (cool white), the coils (cyan / vermilion) and a thin vermilion accent on the sled. Corner text "ARCSEQ / FIG.02". No slogans or other text. Original design, not based on any film, game, anime or existing IP.
 ```
 
 ### P7 · 彩蛋剪影（机甲构思到剪影层之后再用）
