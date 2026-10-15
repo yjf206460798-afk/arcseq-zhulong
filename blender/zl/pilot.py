@@ -481,10 +481,10 @@ def build(seat, props):
             w = 1.0 / (d[near] + 1e-3)
             q = (base[near] * w[:, None]).sum(0) / w.sum()
             n = norm((N[ids[near]] * w[:, None]).sum(0))
-            P_.append(q + n * (SUIT + 0.003))
+            P_.append(q + n * (SUIT + 0.01))  # 离服装 1 cm：平滑后的折线在胸前凸面上也不陷进去
             N_.append(n)
         P_, N_ = np.array(P_), np.array(N_)
-        for _ in range(4):
+        for _ in range(2):
             P_[1:-1] = 0.5 * P_[1:-1] + 0.25 * (P_[:-2] + P_[2:])
             N_[1:-1] = 0.5 * N_[1:-1] + 0.25 * (N_[:-2] + N_[2:])
         return [Vector(v.tolist()) for v in P_], [Vector(norm(v).tolist()) for v in N_]
