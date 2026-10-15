@@ -21,7 +21,7 @@ LOOK = {
     "collar": ((0.045, 0.05, 0.055), 0.8, 0.0),
     "bladder": ((0.07, 0.078, 0.085), 0.7, 0.0),
     "strap": ((0.11, 0.12, 0.125), 0.85, 0.0),
-    "buckle": ((0.55, 0.58, 0.6), 0.32, 1.0),
+    "buckle": ((0.3, 0.32, 0.34), 0.38, 1.0),
     "metal": ((0.45, 0.48, 0.5), 0.35, 1.0),
     "chrome": ((0.75, 0.77, 0.78), 0.18, 1.0),
     "helmet": ((0.075, 0.082, 0.09), 0.42, 0.0),
@@ -78,6 +78,24 @@ def cycles_materials():
         if m.name in ("suit", "collar", "bladder", "strap", "cap"):
             b.inputs["Sheen Weight"].default_value = 0.35
             b.inputs["Sheen Roughness"].default_value = 0.6
+        if m.name in ("suit", "glove", "boot"):
+            # 起稿件的顶点明暗（颜色属性 ao，paint.py）乘进底色
+            at = nt.nodes.new("ShaderNodeAttribute")
+            at.attribute_name = "ao"
+            mix = nt.nodes.new("ShaderNodeMix")
+            mix.data_type = "RGBA"
+            mix.blend_type = "MULTIPLY"
+            mix.inputs["Factor"].default_value = 1.0
+            mix.inputs[6].default_value = (*col, 1.0)
+            nt.links.new(at.outputs["Color"], mix.inputs[7])
+            nt.links.new(mix.outputs[2], b.inputs["Base Color"])
+        if m.name == "inscription":
+            img = bpy.data.images.get("xz.inscription")
+            if img:
+                tx = nt.nodes.new("ShaderNodeTexImage")
+                tx.image = img
+                nt.links.new(tx.outputs["Color"], b.inputs["Base Color"])
+                nt.links.new(tx.outputs["Alpha"], b.inputs["Alpha"])
         if m.name == "glass":
             b.inputs["Transmission Weight"].default_value = 1.0
             b.inputs["IOR"].default_value = 1.5

@@ -29,6 +29,10 @@ OPENING = [(0.0, 0.036), (0.05, 0.04), (0.068, 0.022), (0.068, -0.024), (0.056, 
 BOTTOM = -0.113  # 下沿（盔壳收到颈环上）
 PIVOT = Vector((0.0, 0.0, 0.012))  # 面罩铰链轴心（两侧 y = ±side）
 SLIDE = 0.103  # 遮光面罩收起时在前视里上移的距离
+SUN_EXTRA = -0.0115  # 遮光面罩离底壳面（负 = 在盔壳里面）
+PROW = 0.03  # 眉骨前缘探出盔面
+BROW_MAT = "brow"
+VISOR_GROW = 0.012  # 透明面罩比开口外扩
 
 
 def radius(d):
@@ -168,21 +172,31 @@ def build(body, props, state="soft"):
     geo.mark_sharp(shell, 22)
     out.append(("helmet", shell))
 
+    out += details(M, P, rim, state)
+    return out, M
+
+
+def dir_(az, el):
+    a, e = math.radians(az), math.radians(el)
+    return Vector((math.cos(e) * math.cos(a), math.cos(e) * math.sin(a), math.sin(e)))
+
+
+def details(M, P, rim, state="soft", parts=("frame", "brow", "crest", "hinges", "vents", "rear", "visors", "neckring")):
+    """盔壳以外的件（头部标架 M、超椭球 AX、面罩开口 OPENING 为准）：面框、眉骨、盔脊 + 朱红线、铰链、下巴通气缝、
+    后脑模块、透明面罩、遮光面罩（形态键 down）、颈环（rim：盔壳下沿一圈点，世界坐标）。parts 选要哪些。"""
+    out = []
     def S(d, extra=0.0):
         return M @ surface(d, extra)
 
-    def dir_(az, el):
-        a, e = math.radians(az), math.radians(el)
-        return Vector((math.cos(e) * math.cos(a), math.cos(e) * math.sin(a), math.sin(e)))
-
     # —— 面框：沿开口一圈扫出来的连续框（眉骨 + 两颊 + 下巴护条一体），截面随位置变：上沿是前凸的切面眉骨，
     #    两侧收窄，下沿是下巴护条；面罩缩在框里 ——
-    out.append(("brow", face_frame(M, P)))
+    if "frame" in parts:
+        out.append(("brow", face_frame(M, P)))
     # 眉骨：面框上沿正中的箭头形切面楔，前缘探出面罩 2.6 cm、往后收进盔脊——与座舱上方的机身眉骨同一语言
     ty = OPENING[0][1] + 0.005
     q = []
     b0, n0 = on_shell(0.0, ty + 0.004)
-    q += [M @ (b0 + n0 * 0.03 + Vector((0.012, 0, -0.006))), M @ (b0 + n0 * 0.032 + Vector((0.004, 0, 0.004)))]
+    q += [M @ (b0 + n0 * PROW + Vector((0.4 * PROW, 0, -0.006))), M @ (b0 + n0 * (PROW + 0.002) + Vector((0.004, 0, 0.004)))]
     for sg in (1, -1):
         b, n_ = on_shell(sg * 0.05, ty - 0.003)
         q += [M @ (b + n_ * 0.013), M @ (b + n_ * 0.006 + Vector((0, 0, -0.006)))]
@@ -193,7 +207,7 @@ def build(body, props, state="soft"):
     b, n_ = on_shell(0.0, ty + 0.075)
     q += [M @ (b + n_ * 0.0095), M @ (b - n_ * 0.004)]
     q += [M @ (b0 - n0 * 0.004)]
-    out.append(("brow", geo.hull("xz.helmet.brow", q, "brow", P, bevel=0.0012)))
+    out.append(("brow", geo.hull("xz.helmet.brow", q, BROW_MAT, P, bevel=0.0012)))
     # —— 盔脊：眉骨后沿 → 盔顶 → 后脑（四段凸体），顶上嵌朱红细线 ——
     ridge = []
     els = [32, 52, 75, 100, 125, 150, 172]
@@ -215,7 +229,7 @@ def build(body, props, state="soft"):
         out.append(("metal", geo.tube(f"xz.helmet.hinge.{s}", [c - ax * 0.004, c + ax * 0.009], 0.021, "brow", P, sides=24)))
         out.append(("metal", geo.tube(f"xz.helmet.hinge.{s}.bolt", [c + ax * 0.008, c + ax * 0.013], 0.007, "chrome", P, sides=6)))
     # —— 下巴护条：开口下沿外一块切面板，三道通气缝 ——
-    for k, az in enumerate((-12, 0, 12)):
+    for k, az in enumerate((-12, 0, 12) if "vents" in parts else ()):
         c = S(dir_(az, -36), 0.0135)
         R = geo.frame_from((c - M @ Vector()).normalized(), Vector((0, 0, 1)))
         out.append(("lens", geo.box(f"xz.helmet.chin.vent{k}", c, (0.004, 0.006, 0.02), R, "lens", P)))
@@ -233,7 +247,7 @@ def build(body, props, state="soft"):
     # 透明面罩在外（开口外扩 1.2 cm，四周压在面框下）；遮光面罩在盔壳里面（内藏式）。遮光面罩建在“落下”位置，
     # 再算“收起”位置：每个顶点在前视里上移 SLIDE、沿 x 贴回同一层曲面（离盔面的距离不变）——拓扑不变，
     # 所以收起 = 基础形，落下 = 形态键 down（glTF morph target），网页里拖一个权重就是“闭眼”
-    for name, extra, thick, mat, glow in (("visor", 0.004, 0.0028, "glass", 0.012), ("sunvisor", -0.0115, 0.0022, "sunvisor", 0.008)):
+    for name, extra, thick, mat, glow in (("visor", 0.004, 0.0028, "glass", VISOR_GROW), ("sunvisor", SUN_EXTRA, 0.0022, "sunvisor", 0.008)):
         bm = quad_sphere(26, extra, facets=False)
         cut_prism(bm, grow(OPENING, glow), keep_inside=True, front_only=True)
         dead = [f for f in bm.faces if f.calc_center_median().x <= 0.0]
@@ -264,7 +278,13 @@ def build(body, props, state="soft"):
     for s, sg in (("l", 1), ("r", -1)):
         c = base + Vector((0.0, sg * (rr + 0.006), -0.002))
         out.append(("metal", geo.box(f"xz.helmet.neckring.latch.{s}", c, (0.03, 0.012, 0.022), Matrix.Identity(3), "metal", P, bevel=0.0015)))
-    return out, M
+    keep = []
+    for kind, o in out:
+        if "hinges" not in parts and o.name.startswith("xz.helmet.hinge"):
+            bpy.data.objects.remove(o)
+            continue
+        keep.append((kind, o))
+    return keep
 
 
 def on_shell(y, z, extra=0.0):
