@@ -329,6 +329,20 @@
    * "inside"（空心的机身蒙皮）= 暗内壁，蒙皮自己的剖面由几何母版的剖面带（section.*）给出；
    * "shell"（座舱盖玻璃这类实心建模、实为薄壳的件）= 背面照常着色（半透明），玻璃的薄剖面由剖面带 section.canopy 给出。
    */
+  /**
+   * 没有 uv 的零件（口盖板、鸭翼、眉骨……与蒙皮共用材质）不采样蒙皮的细节 / PBR 贴图：uv 全 0 会取到贴图角上的填充像素，
+   * PBR 法线是物体空间的“朝上”，斜面上的件整块被照错（R4：屋面口盖成了一块暗板）。返回关掉两张贴图的副本。
+   */
+  const plainMats = new Map();
+  const plain = (material) => {
+    if (material.uniforms.uUseDetail.value < 0.5 && material.uniforms.uUsePbrMap.value < 0.5) return material;
+    if (!plainMats.has(material.uuid)) {
+      const m = material.clone();
+      m.uniforms = { ...material.uniforms, uDetail: { value: blackTex }, uUseDetail: { value: 0 }, uPbrMap: { value: blackTex }, uUsePbrMap: { value: 0 } };
+      plainMats.set(material.uuid, m);
+    }
+    return plainMats.get(material.uuid);
+  };
   /** 半透明件（part.opacity < 1）：材质的透明副本，不写深度、在不透明件之后画。 */
   const translucentMats = new Map();
   const translucent = (material, opacity) => {

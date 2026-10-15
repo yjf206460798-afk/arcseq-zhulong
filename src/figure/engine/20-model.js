@@ -211,7 +211,7 @@
     const made = [];
     parts.forEach((part, k) => {
       const index = first + k;
-      const material = materialOf(part);
+      const material = part.uv ? materialOf(part) : plain(materialOf(part));
       const geo = part.kind === "round" ? roundGeometry(part) : polyGeometry(part);
       for (const [kind, data] of Object.entries(geo)) {
         if (!data.pos.length) continue;
