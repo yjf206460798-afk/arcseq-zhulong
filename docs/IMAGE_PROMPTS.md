@@ -240,5 +240,20 @@ BOTTOM ROW — EXPLODED LAYERS from inside out, pulled apart along a vertical ax
 Numbered callouts 1–6, each used once, small legend at bottom right. Small text "銜燭" on the left chest patch. Corner text "ARCSEQ / FIG.02". No slogans or other text. Original design: must not resemble any suit, armor or pilot outfit from films, games, anime or comics.
 ```
 
+### PS1 · 地台：天门弹射托架（附 C2 定稿三视图）
+```
+Concept design sheet for an ORIGINAL launch cradle and stage for the "Zhulong" aerospace fighter (attached three-view), set inside a launch bay on an orbital megastructure 100 km above the Earth. One sheet, dark blue-black background, industrial vector illustration, ultra-fine hierarchical pale cyan-white linework, muted blue-grey structural lines, flat precise shading, no photorealism.
+
+The stage: a round rotating turntable set into the start of a long electromagnetic launch rail. Two parallel rails with a row of coil segments between them run forward from the turntable toward a giant two-leaf airlock door. On the turntable sits a launch sled that holds the aircraft with four clamp arms (two front, two rear), a power umbilical plugged into the belly, and a blast deflector behind the tail. Floor markings: center line, alignment marks and a bay number plate with the small text "天門 · 四層 · 彈射位 3".
+
+Layout:
+TOP — a large three-quarter view from above-left: the aircraft (as in the attached three-view, parked, canopy open) on the sled, the turntable rotated to align with the rail, the rail stretching to the closed airlock door; cool white bay lights along the rail; the coil segments unlit.
+MIDDLE LEFT — TOP VIEW of the turntable and the first part of the rail with the sled (aircraft drawn as a thin outline only).
+MIDDLE RIGHT — SIDE VIEW of the sled with clamp arms closed and open, the umbilical attached and released.
+BOTTOM — three small frames of the launch: 1 turntable aligned, clamps released; 2 airlock door opening onto black sky, stars and the curved Earth below; 3 coil segments lighting up in sequence from cyan to vermilion as the sled accelerates.
+
+Restrained colors: only the bay lights (cool white), the coils (cyan / vermilion) and a thin vermilion accent on the sled. Corner text "ARCSEQ / FIG.02". No slogans or other text. Original design, not based on any film, game, anime or existing IP.
+```
+
 ### P7 · 彩蛋剪影（机甲构思到剪影层之后再用）
 留空，待构思。
