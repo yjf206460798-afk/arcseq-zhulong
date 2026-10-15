@@ -352,21 +352,28 @@ def plug():
     return [o]
 
 
+def to_right(name):
+    """左侧名 → 右侧名：只换结尾的 .l（名字中间的 .l…，例如 .lift，不能动）。"""
+    return name[:-2] + ".r" if name.endswith(".l") else name
+
+
 def mirror_joint(j):
     p, a = j["point"], j["axis"]
-    out = {**j, "name": j["name"].replace(".l", ".r"), "point": [p[0], -p[1], p[2]], "axis": [-a[0], a[1], -a[2]]}
+    # 转轴是赝矢量：镜像后 [-ax, ay, -az]（左右同一组角度就是镜像动作）；滑移方向是真矢量：只把 y 取反
+    axis = [a[0], -a[1], a[2]] if j["type"] == "slide" else [-a[0], a[1], -a[2]]
+    out = {**j, "name": to_right(j["name"]), "point": [p[0], -p[1], p[2]], "axis": axis}
     if j.get("parent"):
-        out["parent"] = j["parent"].replace(".l", ".r")
+        out["parent"] = to_right(j["parent"])
     return out
 
 
 def mirror_part(o):
-    r = mirror_object(o, o.name.replace(".l", ".r"))
+    r = mirror_object(o, to_right(o.name))
     EDGES[r.name] = nose.mirror_lines(EDGES[o.name])
     if o.get("joint"):
-        r["joint"] = o["joint"].replace(".l", ".r")
+        r["joint"] = to_right(o["joint"])
     if o.get("skin"):
-        r["skin"] = o["skin"].replace(".l", ".r")
+        r["skin"] = to_right(o["skin"])
     return r
 
 
@@ -417,7 +424,7 @@ def build():
     joints += lj + [mirror_joint(j) for j in lj]
     objs += plug()
     for o in nose.stand(11.8, ring(11.8)["R3"][1]):
-        o["show"] = "!cutaway"
+        o["show"] = "!stageless"  # 在轨（没有转台的环境）不画托架
         EDGES[o.name] = nose.EDGES[o.name]
         objs.append(o)
     meta = {

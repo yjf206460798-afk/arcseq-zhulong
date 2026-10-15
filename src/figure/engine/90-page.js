@@ -13,6 +13,7 @@
     const bg = environmentColor();
     return { ...B, top: B.top ?? bg, bottom: B.bottom ?? bg, k: to ? k : 1 - k };
   };
+  let stageOn = true;
   function setEnvironment(name, mix = 1) {
     if (!DATA.environments[name]) throw new Error(`Unknown environment: ${name}`);
     env.from = mix >= 1 ? name : env.from;
@@ -21,6 +22,9 @@
     const E2 = DATA.environments[name];
     // 台面色随环境（太空段台面压暗，线条照旧）；机体整体压暗 dim
     MAT.deck.uniforms.uTone.value = (E2.deck ?? DATA.palette.deck).map(rgb);
+    // 环境可以不要转台（stage: false，例如在轨）：台面、台面线、投影一起隐去
+    stageOn = E2.stage !== false;
+    deck.visible = stageOn;
     shared.uDim.value = E2.dim ?? 1;
     stage.style.background = environmentColor();
     for (const hook of envHooks) hook(name);
@@ -152,6 +156,7 @@
   }
   /** 摆好这一帧的一切（不画）：相机、可见性、线定级、灯。 */
   function prepareDraw() {
+    showState.stageless = !stageOn; // 没有转台的环境里，托架之类 show: "!stageless" 的件不画
     placePageCamera();
     camera.updateMatrixWorld();
     const mode = stage.dataset.mode;
@@ -162,8 +167,8 @@
     refreshFlush();
     for (const layer of airLayers) layer.mesh.visible = linesOn && (!layer.show || showOn(layer.show));
     for (const mesh of showMeshes) mesh.visible = showOn(mesh.userData.show);
-    deckLineGroup.visible = linesOn;
-    shadow.visible = !silhouette;
+    deckLineGroup.visible = linesOn && stageOn;
+    shadow.visible = !silhouette && stageOn;
     scene.updateMatrixWorld();
     placeFx(linesOn);
     placeLights(linesOn);

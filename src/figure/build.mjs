@@ -217,6 +217,13 @@ const ENVIRONMENTS = {
     deck: ["#0b0f14", "#0d1116", "#0f1419", "#11171c", "#141a1f"],
     backdrop: { top: "#0a1019", bottom: "#05080d", stars: { density: 0.035, alpha: 0.45 }, earth: { centre: [0.62, -2.4], radius: 2.0, color: "#08101c", rim: "#5aa2d4", rimWidth: 0.0022, halo: 0.22 } },
   },
+  /** 在轨（入轨构图、剑形态巡航）：同太空，不要转台 */
+  orbit: {
+    background: "#090d14",
+    dim: 0.62,
+    stage: false,
+    backdrop: { top: "#0a1019", bottom: "#05080d", stars: { density: 0.035, alpha: 0.45 }, earth: { centre: [0.62, -2.4], radius: 2.0, color: "#08101c", rim: "#5aa2d4", rimWidth: 0.0022, halo: 0.22 } },
+  },
 };
 const MOTION = { unlock: 0.35, kick: 0.012, lock: 0.3, settle: 0.008 };
 const DIRECTOR = { pause: 0.2, pivot: [0, 0, 1.2], airborne: [0.05, 0.4], bob: { period: 3.4, z: 0.035, pitch: 0.22, bank: 0.18 }, follow: { pan: 0.5 } };
