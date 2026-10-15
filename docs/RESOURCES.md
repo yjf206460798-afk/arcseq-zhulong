@@ -29,6 +29,12 @@
 | Blender · UV | **xatlas-python** 或 GN 内置 UV Unwrap / Pack UV Islands | MIT / 内置 | 几百个零件批量展开打包，不依赖 GUI 上下文 | 烛龙 |
 | 材质 / 环境 | **Poly Haven API**、**ambientCG API v3** | CC0 | 构建时拉取 HDRI 与金属面板材质（B 画法的工作室环境光） | 烛龙 |
 
+## AI 建模服务
+
+| 服务 | 条款 | 用在哪 | 备注 |
+|---|---|---|---|
+| **Tripo Studio**（studio.tripo3d.ai） | 免费版：模型公开、不可商用；Pro 起（约 $20/月按年付）：私有、可商用 | 銜燭人体与服装、头盔底稿；中精度小件 | 用法与边界见 WORKFLOW「AI 起稿」，测试稿见 `refs/ai_draft/`。Smart Mesh（四边面硬壳）、分件生成 / Segment、AI Complete（补背面）、Auto Rig（Mixamo 人形骨架）最有用 |
+
 ## 没有现成的（自己写）
 
 - 程序化 greeble、管线走线、面板线 / 铆钉 / 口盖：好用的都是付费插件，许可不清的不用 → 继续用我们的参数化零件库（bmesh + 几何节点 + 布尔）。
