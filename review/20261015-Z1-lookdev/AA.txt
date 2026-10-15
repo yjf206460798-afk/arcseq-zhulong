@@ -1,0 +1,4 @@
+edge pixels: 15522 / 66000
+A: mean |err| 2.84 · p95 |err| 15.0 · flicker 2.00
+B: mean |err| 0.86 · p95 |err| 4.0 · flicker 0.93
+C: mean |err| 0.35 · p95 |err| 2.0 · flicker 0.45
