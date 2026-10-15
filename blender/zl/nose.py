@@ -204,29 +204,34 @@ def eye():
     o = new_object("sensor.ball", ball(False), "sensor", {"skin": "sensor.ball"})  # 眼球不发光（不要“发光环”），只有瞳孔是“烛”
     EDGES[o.name] = finish(o, bevel=0, curved=True)
     out.append(o)
-    o = new_object("sensor.cornea", ball(True), "glass", {"skin": "sensor.cornea", "glass": True, "opacity": 0.22})
+    o = new_object("sensor.cornea", ball(True), "glass", {"skin": "sensor.cornea", "glass": True, "opacity": 0.12})
     EDGES[o.name] = finish(o, bevel=0, curved=True)
     out.append(o)
-    # 角膜后面：虹膜光圈（六片 1.2 mm 叶片，内缘拼成六边形瞳孔、外缘一段圆弧，片间错叠）→ 瞳孔透镜（通电是“烛”的亮点）
+    # 角膜后面：虹膜光圈（六片 1.2 mm 亮钛叶片，内缘一段圆弧拼成圆形瞳孔——直边拼成的六边形读成“螺母”（R4 独立审图）；
+    # 外缘一段圆弧，片间错叠）→ 瞳孔透镜（通电是“烛”的亮点）
     s_i = CAP_S + 0.017
     ra, ro = 0.03, 0.062
     for k in range(6):
         th = math.radians(60 * k)
-        pts = []
-        for a_ in (-30, 30):
-            ang = th + math.radians(a_)
-            rr = ra / math.cos(math.radians(30))
-            pts.append((math.cos(ang) * rr, math.sin(ang) * rr))
-        for a_ in range(-40, 41, 10):
-            ang = th + math.radians(a_)
-            pts.append((math.cos(ang) * ro, math.sin(ang) * ro))
+        # 叶片轮廓（非凸：内缘向外凹的圆弧，凸包会把它拉成直边）：内弧 −30°→+30°、外弧 +40°→−40°，沿 s 挤出 1.2 mm
+        ring_ = [(math.cos(th + math.radians(a_)) * ra, math.sin(th + math.radians(a_)) * ra) for a_ in range(-30, 31, 5)]
+        ring_ += [(math.cos(th + math.radians(a_)) * ro, math.sin(th + math.radians(a_)) * ro) for a_ in range(40, -41, -10)]
         ds = 0.0009 * k
-        P = [at(s_i + ds + d, y, c.z + z) for y, z in pts for d in (0.0, 0.0012)]
-        o, l = hull(f"sensor.iris.blade{k}", P, "chrome", {"skin": f"sensor.iris.blade{k}", "lineLevel": "secondary", "aoFlat": True}, bevel=0.0)
-        EDGES[o.name] = l
+        bm = bmesh.new()
+        front = [bm.verts.new(at(s_i + ds, y, c.z + z)) for y, z in ring_]
+        back = [bm.verts.new(at(s_i + ds + 0.0012, y, c.z + z)) for y, z in ring_]
+        bm.faces.new(front)
+        bm.faces.new(list(reversed(back)))
+        for i in range(len(ring_)):
+            j = (i + 1) % len(ring_)
+            bm.faces.new((front[j], front[i], back[i], back[j]))
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        bmesh.ops.triangulate(bm, faces=bm.faces)
+        o = new_object(f"sensor.iris.blade{k}", bm, "iris", {"skin": f"sensor.iris.blade{k}", "lineLevel": "secondary", "aoFlat": True})
+        EDGES[o.name] = finish(o, bevel=0)
         out.append(o)
     out.append(torus("sensor.iris.housing", s_i + 0.003, ro + 0.004, 0.0045, "carbon", {"skin": "sensor.iris.housing", "lineLevel": "secondary", "aoFlat": True}))
-    # 瞳孔里一片圆镜片（R4 作者：要看得到圆形镜片——镜片在叶片前，半径 2.4 cm 小于六边形瞳孔的内切圆 2.6 cm，读成圆），
+    # 瞳孔里一片圆镜片（R4 作者：要看得到圆形镜片——镜片在叶片前，半径 2.4 cm，圆形瞳孔半径 3 cm），
     # 镜片中心一粒暗色内镜（像眼睛的瞳仁）；通电时琥珀色镜片是“烛”。叶片与座圈在眼球腔里，顶点 AO 会把它们压成一片黑，不烘（aoFlat）
     def dome(name, s_, rad, depth, mat, props):
         bm = bmesh.new()
@@ -238,7 +243,7 @@ def eye():
         EDGES[o_.name] = finish(o_, bevel=0, curved=True)
         return o_
 
-    out.append(dome("sensor.lens", s_i - 0.001, 0.024, 0.006, "sensor", {"skin": "sensor.lens", "glow": {"key": "sensor", "color": "#ffb060"}, "aoFlat": True}))
+    out.append(dome("sensor.lens", s_i - 0.001, 0.024, 0.006, "sensor", {"skin": "sensor.lens", "glow": {"key": "sensor", "color": "#d98c3e"}, "aoFlat": True}))
     out.append(dome("sensor.pupil", s_i - 0.0055, 0.0085, 0.003, "carbon", {"skin": "sensor.pupil", "lineLevel": "secondary", "aoFlat": True}))
     if IRIS_CLOSED:
         out += iris_cap(c)
@@ -573,7 +578,7 @@ def rcs():
 
 
 def probes_antennas():
-    """大气数据探头（下切面 s 0.9，前伸 0.22 m 的细管 + 底座）、静压孔（下切面 s 2.3 两枚）、刀形天线（腹底 s 3.3、背脊 s 2.6）、贴片天线（屋面 s 1.85、3.5）。"""
+    """大气数据探头（下切面 s 0.9，前伸 0.22 m 的细管 + 底座）、静压孔（下切面 s 2.3 两枚）、刀形天线（腹底 s 3.3、背脊 s 2.6）、贴片天线（屋面 s 1.85、2.45）。"""
     out = []
     for side, tag in ((1, "l"), (-1, "r")):
         base, n = surface(0.95, "lower", 0.25, side)
@@ -596,10 +601,10 @@ def probes_antennas():
         else:
             z0, d = ring(s)["R3"][1], -1
         P = [at(s + ds, dy, z0 + d * dz) for ds, dz in ((0.08, -0.01), (-0.08, -0.01), (-0.06, h), (-0.1, h), (0.04, 0.0)) for dy in (-0.006, 0.006)]
-        o, l = hull(name, P, "carbon", {"skin": name, "lineLevel": "secondary"}, bevel=0.002)
+        o, l = hull(name, P, "carbon", {"skin": name, "lineLevel": "secondary"}, bevel=0.004)
         EDGES[o.name] = l
         out.append(o)
-    for k, (s, y) in enumerate(((1.85, 0.0), (3.5, 0.18))):
+    for k, (s, y) in enumerate(((1.85, 0.0), (2.45, 0.16))):  # 第二对原在 s 3.5，落在屋面口盖上，读不出是什么（R4 独立审图），挪到口盖前
         for side in ((1,) if y == 0 else (1, -1)):
             p, n = surface(s, "roof", y / max(ring(s)["R1"][0], 1e-3), side)
             u = Vector((1, 0, 0))
@@ -780,7 +785,8 @@ def seams():
         return list(reversed(left)) + right
 
     def rect(facet, s0, s1, t0, t1, side, lift=0.0015, level="secondary"):
-        line([surface(s, facet, t, side, lift) for s, t in ((s0, t0), (s1, t0), (s1, t1), (s0, t1))], level=level, closed=True)
+        # 口盖线不烘铆钉行：口盖板上已有几何紧固件，再烘一圈会成对错位（R4 独立审图）
+        line([surface(s, facet, t, side, lift) for s, t in ((s0, t0), (s1, t0), (s1, t1), (s0, t1))], level=level, closed=True, rivets=False)
 
     # C2 量出来的分缝（俯视 66 px/m、侧视 42.4 px/m）：光窗后一圈环缝 s 0.62；屋面两道向前的 V 形缝（s 1.07→1.27、2.84→3.09，
     # 中线处在前）；屋面口盖 s 3.1～4.06（外沿到 t 0.73）；外上切面竖缝 s 2.62、3.54。其余是 K1 结构框处的低对比环缝（L2）。
@@ -824,14 +830,14 @@ def seams():
         for sx in (0.62, 1.07, 2.0, 2.84, 3.1):
             t = 0.045 / max(ring(sx)["R1"][0], 1e-3)
             pts.append(surface(sx, "roof", t, side, 0.0015))
-        line(pts)
+        line(pts, rivets=False)  # 离背脊只有 4.5 cm，两侧各烘一行会和背脊另一侧的行挤成对
     # 口盖：传感器舱门（屋面 s 0.7～1.0）、姿控喷口检修板（外上切面 s 1.28～1.7）、下切面检修口（s 2.1～3.0），前起落架舱门（腹底 s 4.1～5.8，左右两扇，L1）
     for side in (1, -1):
         rect("roof", 0.68, 1.0, 0.25, 0.85, side, level="structure")
         rect("outer", 1.28, 1.7, 0.08, 0.92, side)
         rect("lower", 2.1, 3.0, 0.1, 0.5, side)
-    line([surface(s, "belly", t, 1, 0.0015) for s, t in ((4.1, 1.0), (5.8, 1.0), (5.8, 0.1), (4.1, 0.1))], level="structure", closed=True)
-    line([surface(s, "belly", t, -1, 0.0015) for s, t in ((4.1, 1.0), (5.8, 1.0), (5.8, 0.1), (4.1, 0.1))], level="structure", closed=True)
+    line([surface(s, "belly", t, 1, 0.0015) for s, t in ((4.1, 1.0), (5.8, 1.0), (5.8, 0.1), (4.1, 0.1))], level="structure", closed=True, rivets=False)
+    line([surface(s, "belly", t, -1, 0.0015) for s, t in ((4.1, 1.0), (5.8, 1.0), (5.8, 0.1), (4.1, 0.1))], level="structure", closed=True, rivets=False)
     # 朱红线（accent）：沿 R1 脊线 s 4.0～7.6，通电扫亮（与嵌条同一条 u）
     for side in (1, -1):
         def ridge(s, side=side):

@@ -608,7 +608,7 @@ def aft_bay(acc):
     collect(acc, pipe("int.aft.hpipe", [kc(1575, 400, -0.28), kc(1696, 400, -0.28)], 0.016, props=P))
     for k, x in enumerate((1600, 1630, 1660)):
         collect(acc, clamp(f"int.aft.hpipe.c{k}", kc(x, 400, -0.28), X, 0.016, props=P))
-    collect(acc, hull("int.aft.deck", [kc(x, y, yy) + Z * dz for x, y in ((1525, 493), (1696, 434)) for yy in (0.36, -0.36) for dz in (0, -0.02)], "structure", P, bevel=0.004))
+    collect(acc, hull("int.aft.deck", [kc(x, y, yy) + Z * dz for x, y in ((1525, 493), (1696, 434)) for yy in (0.36, -0.36) for dz in (0, -0.02)], "structure", PC, bevel=0.004))  # 跨剖切面：要切开（否则近侧半块悬在剖切面外）
     # 地板下后设备舱（s 6.4～7.6）：两只箱 + 一排线束
     for k, (x0, x1) in enumerate(((1440, 1530), (1580, 1680))):
         kbox(acc, f"int.aft.box.{k}", x0, 515, x1, 580, want=0.4, mapper=kg, face="+y", handles=True, plugs=3, label=True, corner_bolts=True, split=k)

@@ -96,7 +96,7 @@ const PALETTE = {
   metal: ["#202426", "#272b2e", "#2f3336", "#373b3e", "#41464a"],
   chrome: ["#2a2f33", "#343a3e", "#40464b", "#4d5459", "#5c646a"],
   rubber: ["#0e0f10", "#111213", "#141516", "#17181a", "#1b1c1e"],
-  iris: ["#101214", "#131517", "#16181a", "#1a1c1f", "#1f2124"],
+  iris: ["#3e4448", "#484e52", "#53595e", "#5f666b", "#6c7378"],
   vermilion: ["#4a1a14", "#5a1f17", "#6b251b", "#7d2b1f", "#8f3224"],
   stand: ["#0f1315", "#121618", "#15191b", "#181c1f", "#1c2023"],
   /** 内部（剖视）：结构框偏亮、设备箱暖灰、管线冷灰、线束暗、罐体浅；屏幕与座椅、压力服。R3：按 K1 的中灰提亮（A 的箱面原来暗到和底色分不开）；B 的增益同步降，B 画面不变 */
@@ -145,11 +145,11 @@ const MATERIALS = {
 for (const k of ["frame", "metal", "chrome", "rubber", "iris", "vermilion", "stand", "structure", "avionics", "panel", "pipe", "cable", "tank", "screen", "seat", "suit", "pad", "strap", "visor", "inscription", "helmet", "section", "label", "hazard", "backwall", "liner"]) MATERIALS[k] = { tones: k, shade: ["metal", "chrome", "rubber", "pipe", "cable", "tank", "helmet", "suit", "pad", "strap", "visor"].includes(k) ? "round" : "facet" };
 /** B 画法的材质参数：[金属度, 粗糙度, 基色增益]（基色取色板第 4 档，换到线性空间再乘增益）。 */
 const PBR = {
-  hull: [0.62, 0.34, 3.6], belly: [0.45, 0.45, 3.4], carbon: [0.2, 0.35, 2.4], glass: [0.0, 0.05, 1.0], interior: [0.3, 0.55, 4.0], sensor: [0.0, 0.08, 1.6],
+  hull: [0.62, 0.34, 3.2], belly: [0.45, 0.45, 3.4], carbon: [0.2, 0.35, 2.4], glass: [0.0, 0.05, 1.0], interior: [0.3, 0.55, 4.0], sensor: [0.0, 0.08, 1.6],
   void: [0.2, 0.6, 1.0], round: [0.5, 0.45, 3.0], frame: [0.7, 0.35, 3.2], metal: [0.85, 0.3, 4.5], chrome: [1.0, 0.12, 3.5], rubber: [0.0, 0.8, 2.2],
-  iris: [0.6, 0.35, 3.0], vermilion: [0.2, 0.4, 1.7], stand: [0.5, 0.5, 2.0], structure: [0.75, 0.36, 3.1], avionics: [0.45, 0.42, 3.6], panel: [0.4, 0.45, 2.4],
+  iris: [0.75, 0.32, 2.4], vermilion: [0.2, 0.4, 1.7], stand: [0.5, 0.5, 2.0], structure: [0.75, 0.36, 3.1], avionics: [0.45, 0.42, 3.6], panel: [0.4, 0.45, 2.4],
   pipe: [0.85, 0.3, 3.45], cable: [0.1, 0.65, 3.0], tank: [0.85, 0.28, 4.5], screen: [0.0, 0.1, 1.5], seat: [0.25, 0.6, 4.5], suit: [0.05, 0.72, 1.3], pad: [0.08, 0.62, 1.7], strap: [0.05, 0.75, 3.0], visor: [0.6, 0.15, 2.0], inscription: [0.2, 0.5, 1.6],
-  helmet: [0.35, 0.3, 2.2], section: [0.6, 0.4, 2.0], label: [0.1, 0.5, 3.5], hazard: [0.2, 0.5, 3.0], backwall: [0.3, 0.7, 0.65], liner: [0.25, 0.62, 1.45],
+  helmet: [0.35, 0.3, 2.2], section: [0.6, 0.4, 2.0], label: [0.1, 0.5, 3.5], hazard: [0.2, 0.5, 3.0], backwall: [0.3, 0.7, 0.65], liner: [0.25, 0.62, 1.2],
 };
 for (const [k, m] of Object.entries(MATERIALS)) {
   m.pbr = PBR[k] ?? [0.3, 0.5, 2.4];
@@ -157,6 +157,10 @@ for (const [k, m] of Object.entries(MATERIALS)) {
 }
 // 剖视远侧内衬：K1 的浅灰壁板近乎平光（朝下的远侧屋面也是浅灰），按 0.85 混向平光
 MATERIALS.liner.fill = 0.85;
+// 机腹（下切面、腹底、鳞片瓦）朝下，工作室环境的地面是暗的，B 里会比地台还暗、鳞片瓦读不出（R4 独立审图）：补 0.6 的平光
+MATERIALS.belly.fill = 0.6;
+// 光窗虹膜叶片（亮钛）：在烟晶角膜后面、眼球腔里，补 0.4 平光才读得出叶片（R4）
+MATERIALS.iris.fill = 0.4;
 /**
  * 线条分级（FIG.01 G2，VISUAL_TARGET：L0 0.6～0.9 / L1 约 0.5 / L2 0.35～0.5 px）。
  * accents：作品标志色的线（朱红棱线）：线宽同主描边、偏暗不荧光；idle 为未通电时的亮度（三四成），通电后由机头沿线点亮并进发光缓冲。

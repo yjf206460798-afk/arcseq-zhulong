@@ -106,7 +106,7 @@ def rivets_along(seams, pitch=0.035, offset=0.018):
     """沿每条分割线两侧各一行铆钉：偏离 offset，间距 pitch。"""
     out = []
     for sm in seams:
-        if sm.get("level") not in (None, "secondary", "structure"):
+        if sm.get("level") not in (None, "secondary", "structure") or sm.get("rivets") is False:
             continue
         pts = [np.array(p) for p in sm["points"]]
         nrm = [np.array(n) for n in sm["normals"]]
@@ -174,7 +174,12 @@ def paint(P, N, A, meta):
     F = Field(P, valid)
     r = np.full(shape, 0.5, np.float32)
     g = np.zeros(shape, np.float32)
-    b = np.where(valid, A[..., 0], 1.0).astype(np.float32)
+    # 贴图 AO 烘出来没有抗锯齿，眉骨、口盖与蒙皮的交线上是一级级台阶（R4 独立审图）：在有效纹素里做 1.2 纹素的归一化高斯模糊
+    from scipy.ndimage import gaussian_filter
+
+    vf = valid.astype(np.float32)
+    ao = gaussian_filter(np.where(valid, A[..., 0], 0.0).astype(np.float32), 1.2) / np.maximum(gaussian_filter(vf, 1.2), 1e-4)
+    b = np.where(valid, ao, 1.0).astype(np.float32)
     rough = np.full(shape, 0.55, np.float32)
     bump = np.zeros(shape + (3,), np.float32)  # 法线扰动（加到 n 上再归一）
 
