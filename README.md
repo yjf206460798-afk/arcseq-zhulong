@@ -31,10 +31,11 @@ sh scripts/z1-review.sh                                        # Z1 全部交审
 | `docs/BLENDER.md` | Blender 管线：云端实测结论与建模规矩 |
 | `docs/DESIGN.md` | 机体设定：名字由来、尺寸、外形、两种形态、化剑步骤、机构清单 |
 | `docs/SETTING_CARD.md` | 一页设定卡（体系“边做边长”用） |
-| `docs/ROADMAP.md` | 阶段 Z0～Z6 与当前进度 |
+| `docs/ROADMAP.md` | 阶段 Z0～Z7 与当前进度 |
 | `docs/WORKFLOW.md` | Claude × Codex 分工（与 FIG.01 相同） |
 | `docs/VISUAL_TARGET.md` | A380 质感标准（与 FIG.01 相同） |
 | `docs/IMAGE_PROMPTS.md` | 已用和待用的 GPT 出图提示词 |
 | `docs/FIRST_SESSION.md` | 第一次云端会话的任务描述 |
 | `refs/concept/` | 概念图 C0～C3（GPT 生成，作者所有，仅供内部比对） |
+| `refs/layout/` | 总布置图 L0 与发动机图 E1～E4（GPT 生成，作者 2026-10-15 确认）；图间冲突见该目录 README |
 | `refs/style-a380/` | A380 质感参照截图 |
