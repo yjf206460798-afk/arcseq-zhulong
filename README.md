@@ -34,6 +34,7 @@ sh scripts/z1-review.sh                                        # Z1 全部交审
 | `docs/ROADMAP.md` | 阶段 Z0～Z7 与当前进度 |
 | `docs/WORKFLOW.md` | Claude × Codex 分工（与 FIG.01 相同） |
 | `docs/VISUAL_TARGET.md` | A380 质感标准（与 FIG.01 相同） |
+| `docs/RESOURCES.md` | 可复用的开源资源清单与许可规矩（现在就采用 / 自己写 / 暂缓） |
 | `docs/PAGE_LAYOUT.md` | 页面版式：左操作、中模型、右实时三视图的技术图纸式展陈 |
 | `docs/IMAGE_PROMPTS.md` | 已用和待用的 GPT 出图提示词 |
 | `docs/FIRST_SESSION.md` | 第一次云端会话的任务描述 |
