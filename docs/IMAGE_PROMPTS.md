@@ -206,6 +206,14 @@ Remove all text, titles, numbers, callouts, legends, the name logo and the small
 Pure white background. Strictly orthographic. Keep the image size and framing identical to the original.
 ```
 
+**C3 剑形态专用开头**（B 段前面加这一段，否则 GPT 容易拿上一张大气形态的图当底图）：
+```
+The attached image is the SWORD MODE three-view of the aircraft: a long, narrow blade-like body with NO spread wings. The main wings are folded back flush against the sides of the rear body, and the two tails stick out sideways near the rear as a horizontal crossguard. If your output shows spread wings or upright tails in the top view, it is wrong — use ONLY the attached image as the base.
+```
+剑形态配色在 B 表基础上改：折叠后的主翼（贴在后机身两侧的窄带）绿、剑格（转平的两片垂尾）蓝、盖住座舱的遮光盾紫、前视两块闭合进气门橙；不出现鸭翼和座舱玻璃。
+
+**每张图新开一个 GPT 对话、只附那一张**：同一对话里做图片编辑，GPT 常拿它上一张生成图当底图。
+
 用法：出图后由 Claude 与原图做 50% 叠图和锚点标定（`<图名>_分色.calib.json`），锚点残差都 ≤ 2% 画幅才用；画幅被改过就按轴分别换算（见 K1 的 calib）。
 
 ### P5 · 主视觉
