@@ -1,0 +1,248 @@
+[
+ {
+  "name": "c2-top-A",
+  "refName": "c2-top",
+  "ref": "refs/concept/C2_\u5927\u6c14\u5f62\u6001\u4e09\u89c6\u56fe_\u5b9a\u7a3f.png",
+  "crop": [
+   40,
+   30,
+   1420,
+   760
+  ],
+  "heading": 90,
+  "elevation": 90,
+  "mode": "lines",
+  "scale": 2,
+  "zoom": 2,
+  "page": "dist/drawing.html",
+  "anchors": [
+   [
+    [
+     9.5,
+     0,
+     1.65
+    ],
+    [
+     89.0,
+     390.5
+    ]
+   ],
+   [
+    [
+     -7.5,
+     0,
+     1.65
+    ],
+    [
+     1211.0,
+     390.5
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "c2-side-A",
+  "refName": "c2-side",
+  "ref": "refs/concept/C2_\u5927\u6c14\u5f62\u6001\u4e09\u89c6\u56fe_\u5b9a\u7a3f.png",
+  "crop": [
+   560,
+   770,
+   1440,
+   1000
+  ],
+  "heading": 90,
+  "elevation": 0,
+  "mode": "lines",
+  "scale": 2,
+  "zoom": 2,
+  "page": "dist/drawing.html",
+  "anchors": [
+   [
+    [
+     9.5,
+     0,
+     1.65
+    ],
+    [
+     590.0,
+     929.5
+    ]
+   ],
+   [
+    [
+     -7.5,
+     0,
+     1.65
+    ],
+    [
+     1311.1399999999999,
+     929.5
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "c2-front-A",
+  "refName": "c2-front",
+  "ref": "refs/concept/C2_\u5927\u6c14\u5f62\u6001\u4e09\u89c6\u56fe_\u5b9a\u7a3f.png",
+  "crop": [
+   20,
+   770,
+   580,
+   1000
+  ],
+  "heading": 0,
+  "elevation": 0,
+  "mode": "lines",
+  "scale": 2,
+  "zoom": 2,
+  "page": "dist/drawing.html",
+  "anchors": [
+   [
+    [
+     9.5,
+     0,
+     1.65
+    ],
+    [
+     297.0,
+     923.7
+    ]
+   ],
+   [
+    [
+     9.5,
+     3,
+     1.65
+    ],
+    [
+     437.01,
+     923.7
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "c2-top-B",
+  "refName": "c2-top",
+  "ref": "refs/concept/C2_\u5927\u6c14\u5f62\u6001\u4e09\u89c6\u56fe_\u5b9a\u7a3f.png",
+  "crop": [
+   40,
+   30,
+   1420,
+   760
+  ],
+  "heading": 90,
+  "elevation": 90,
+  "mode": "lines",
+  "scale": 2,
+  "zoom": 2,
+  "page": "dist/index.html",
+  "anchors": [
+   [
+    [
+     9.5,
+     0,
+     1.65
+    ],
+    [
+     89.0,
+     390.5
+    ]
+   ],
+   [
+    [
+     -7.5,
+     0,
+     1.65
+    ],
+    [
+     1211.0,
+     390.5
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "c2-side-B",
+  "refName": "c2-side",
+  "ref": "refs/concept/C2_\u5927\u6c14\u5f62\u6001\u4e09\u89c6\u56fe_\u5b9a\u7a3f.png",
+  "crop": [
+   560,
+   770,
+   1440,
+   1000
+  ],
+  "heading": 90,
+  "elevation": 0,
+  "mode": "lines",
+  "scale": 2,
+  "zoom": 2,
+  "page": "dist/index.html",
+  "anchors": [
+   [
+    [
+     9.5,
+     0,
+     1.65
+    ],
+    [
+     590.0,
+     929.5
+    ]
+   ],
+   [
+    [
+     -7.5,
+     0,
+     1.65
+    ],
+    [
+     1311.1399999999999,
+     929.5
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "c2-front-B",
+  "refName": "c2-front",
+  "ref": "refs/concept/C2_\u5927\u6c14\u5f62\u6001\u4e09\u89c6\u56fe_\u5b9a\u7a3f.png",
+  "crop": [
+   20,
+   770,
+   580,
+   1000
+  ],
+  "heading": 0,
+  "elevation": 0,
+  "mode": "lines",
+  "scale": 2,
+  "zoom": 2,
+  "page": "dist/index.html",
+  "anchors": [
+   [
+    [
+     9.5,
+     0,
+     1.65
+    ],
+    [
+     297.0,
+     923.7
+    ]
+   ],
+   [
+    [
+     9.5,
+     3,
+     1.65
+    ],
+    [
+     437.01,
+     923.7
+    ]
+   ]
+  ]
+ }
+]
