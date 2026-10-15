@@ -11,6 +11,7 @@
 每类找连通块 → 包围盒（管线另做：骨架 → 节点之间的分支 → 折线 + 半径，两端各查接在哪个零件上）；包围盒经 calib 换回原图像素，
 再按 interior.py 的 k1 / kg / kc 映射到站位 s、高度 z；长、高按 220 px/m 量（不拉伸）。侧剖缺的 y、宽从俯视小图按站位取同色块的横向范围
 （小图另行按三个锚点分段标定，比例不可靠 → 把握度“中”），取不到的按截面内表面推定（“猜”）。
+列：长 / 宽 / 高是包围盒（米）；杆、框、梁、管另有“粗”（直径 / 厚）与“路径”（s:z;… 机体米制，杆是两端，管是折线）。
 """
 import csv
 import json
@@ -271,7 +272,7 @@ def existing_parts():
     out = []
     for o, _ in pairs:
         name = o.name
-        if any(t in name[len("int."):] for t in SUFFIX) or name.startswith("int.frame.") or name.startswith("int.stringer") or name.startswith("int.harness.drop"):
+        if name.startswith("int.k1.") or any(t in name[len("int."):] for t in SUFFIX) or name.startswith("int.frame.") or name.startswith("int.stringer") or name.startswith("int.harness.drop"):
             continue
         vs = np.array([tuple(v.co) for v in o.data.vertices])
         s = XN - vs[:, 0]
@@ -405,12 +406,18 @@ def main():
             rec["ends"] = (a, b)
             rec["基本形"] = "杆" if k == 5 else ("框" if abs(ax[1]) > abs(ax[0]) else "梁")
             rec["粗"] = (thick.max() - thick.min()) / PX
+            ea, eb = to_body(*a), to_body(*b)
+            rec["路径"] = f"{ea[0]:.3f}:{ea[1]:.3f};{eb[0]:.3f}:{eb[1]:.3f}"
         elif k == 5:
             rec["基本形"] = "支架"
         elif k == 3:
-            # 圆罐：外形接近椭圆（填充率低于矩形）
-            fill = row["area"] / max(1, (x1 - x0) * (y1 - y0))
-            rec["基本形"] = "罐" if fill < 0.8 and aspect > 1.4 else "盒"
+            # 圆罐：两端是圆头——包围盒四个角（各 12%）几乎没有本色像素，而长边中段是满的
+            m = labels[3][y0:y1, x0:x1] == row["label"]
+            hh, ww = m.shape
+            cy, cx = max(1, int(hh * 0.12)), max(1, int(ww * 0.12))
+            corners = np.mean([m[:cy, :cx].mean(), m[:cy, -cx:].mean(), m[-cy:, :cx].mean(), m[-cy:, -cx:].mean()])
+            mid = m[:, ww // 2 - cx // 2: ww // 2 + cx // 2 + 1].mean() if ww > hh else m[hh // 2 - cy // 2: hh // 2 + cy // 2 + 1, :].mean()
+            rec["基本形"] = "罐" if corners < 0.25 and mid > 0.8 and aspect > 1.3 else "盒"
         out.append(rec)
 
     # 3. 名字、区段、y / 宽、固定在、现有零件、把握度
@@ -449,6 +456,15 @@ def main():
                 best, bv = name, v
         rec["现有零件"] = best if bv >= 0.2 else "缺"
         rec["重叠"] = bv
+        if bv < 0.2:
+            # 落在一个更大的现有零件里（座椅上的小机构、箱体上的小盒）：算并入
+            area = (X1 - X0) * (Y1 - Y0)
+            for name, b, c in ex:
+                bw, bh = b[2] - b[0], b[3] - b[1]
+                compact = max(bw, bh) <= 4 * max(1.0, min(bw, bh)) and bw * bh <= (0.9 * PX) ** 2  # 细长件（纵梁、线束）的包围盒不算“装在里面”
+                if c in COMPAT[rec["类别"]] and compact and bw * bh >= area and cover(rec["box"], b) >= 0.7:
+                    rec["现有零件"] = f"并入 {name}"
+                    break
         if rec.get("基本形") == "框":
             f = nearest_frame(s)
             rec["现有零件"] = f"int.frame（s {f:.2f}）" if abs(f - s) < 0.07 else "缺"
@@ -475,11 +491,12 @@ def main():
     # 管线行
     INDEX.update({(r["k"], r["row"]["label"]): r["编号"] for r in out if r["row"]["label"] >= 0 and r["k"] != 2})
     prow = []
+    net_of = labels[4]
     for path, r in pipes:
         P = [(seg2ref(x, y)) for y, x in path]
         simp = rdp([(round(x, 1), round(y, 1)) for x, y in P], 2.0)
         L = sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(simp, simp[1:]))
-        if L < 12:
+        if L < 16:  # 短于约 7 cm 的是骨架毛刺
             continue
         horiz = abs(simp[-1][0] - simp[0][0]) >= abs(simp[-1][1] - simp[0][1])
         rad = r * (T["sy"] if horiz else T["sx"]) / PX
@@ -494,7 +511,8 @@ def main():
         sc = (body[0][0] + body[-1][0]) / 2
         zc = (body[0][1] + body[-1][1]) / 2
         rec = {"编号": None, "类别": "管线", "基本形": "管", "材质": "cable" if rad > 0.012 else "pipe", "站位s": sc, "z": zc, "长L": L / PX, "高H": (Y1 - Y0) / PX, "宽W": 2 * rad, "y": 0.0,
-               "y来源": "猜", "box": (X0, Y0, X1, Y1), "k": 4, "半径": rad, "路径": ";".join(f"{s:.3f}:{z:.3f}" for s, z, _ in body), "固定在": " ↔ ".join(ends), "区段": zone_of((X0 + X1) / 2, (Y0 + Y1) / 2), "现有零件": "", "把握度": "中" if "悬空" not in " ".join(ends) else "猜"}
+               "y来源": "猜", "box": (X0, Y0, X1, Y1), "k": 4, "半径": rad, "路径": ";".join(f"{s:.3f}:{z:.3f}" for s, z, _ in body), "固定在": " ↔ ".join(ends), "区段": zone_of((X0 + X1) / 2, (Y0 + Y1) / 2), "现有零件": "", "把握度": "中" if "悬空" not in " ".join(ends) else "猜",
+               "网": f"N{int(max(net_of[p] for p in path)):03d}"}
         prow.append(rec)
     prow.sort(key=lambda r: r["box"][0])
     for rec in prow:
@@ -584,7 +602,7 @@ def name_of(r):
     return f"{r['区段']} {base}"
 
 
-COLS = ["编号", "名称", "类别", "区段", "站位s", "y", "z", "长L", "宽W", "高H", "基本形", "材质", "固定在", "现有零件", "来源图", "把握度", "y来源", "原图像素框", "路径", "备注"]
+COLS = ["编号", "名称", "类别", "区段", "站位s", "y", "z", "长L", "宽W", "高H", "粗", "基本形", "材质", "固定在", "现有零件", "来源图", "把握度", "y来源", "原图像素框", "路径", "管网", "备注"]
 
 
 def write_csv(rows):
@@ -594,9 +612,9 @@ def write_csv(rows):
         for r in rows:
             X0, Y0, X1, Y1 = r["box"]
             w.writerow([
-                r["编号"], r["名称"], r["类别"], r["区段"], f"{r['站位s']:.3f}", f"{r['y']:.3f}", f"{r['z']:.3f}", f"{r['长L']:.3f}", f"{r['宽W']:.3f}", f"{r['高H']:.3f}",
+                r["编号"], r["名称"], r["类别"], r["区段"], f"{r['站位s']:.3f}", f"{r['y']:.3f}", f"{r['z']:.3f}", f"{r['长L']:.3f}", f"{r['宽W']:.3f}", f"{r['高H']:.3f}", f"{r['粗']:.3f}" if r.get("粗") else (f"{2 * r['半径']:.3f}" if r.get("半径") else ""),
                 r["基本形"], r["材质"], r["固定在"], r["现有零件"], "K1 分色" + ("+俯视小图" if r.get("y来源") == "俯视小图" else ""), r["把握度"], r["y来源"],
-                f"{X0:.0f} {Y0:.0f} {X1:.0f} {Y1:.0f}", r.get("路径", ""), r.get("备注", ""),
+                f"{X0:.0f} {Y0:.0f} {X1:.0f} {Y1:.0f}", r.get("路径", ""), r.get("网", ""), r.get("备注", ""),
             ])
 
 

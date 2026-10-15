@@ -17,6 +17,7 @@
     varying vec3 vM0;
     varying vec3 vM1;
     varying vec3 vM2;
+    varying vec3 vW;
     #include <clipping_planes_pars_vertex>
     void main() {
       vec4 mvPosition = viewMatrix * modelMatrix * vec4(position, 1.0);
@@ -30,6 +31,7 @@
       vM0 = modelMatrix[0].xyz;
       vM1 = modelMatrix[1].xyz;
       vM2 = modelMatrix[2].xyz;
+      vW = (modelMatrix * vec4(position, 1.0)).xyz;
       gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0);
     }`;
   const FRAG = `
@@ -73,6 +75,7 @@
     varying vec3 vM0;
     varying vec3 vM1;
     varying vec3 vM2;
+    varying vec3 vW;
     uniform float uLook;
     uniform vec3 uPbr;
     uniform sampler2D uPbrMap;
@@ -90,13 +93,14 @@
       return st(1.0 - w, 1.0 - w * 0.35, c);
     }
     vec3 envRadiance(vec3 r, float rough) {
-      vec3 col = mix(vec3(0.015, 0.018, 0.022), vec3(0.20, 0.215, 0.235), st(-0.35, 0.95, r.z));
+      // R3 反馈：明暗对比加大——地更暗、顶的过渡更陡，主光强、副光弱（两侧明暗分得开），轮廓条更亮
+      vec3 col = mix(vec3(0.006, 0.007, 0.009), vec3(0.09, 0.10, 0.115), st(-0.1, 0.95, r.z));
       float k = 1.0 / (1.0 + rough * 4.0);
-      col += vec3(1.00, 0.97, 0.92) * 5.0 * k * box(r, vec3(0.45, -0.6, 0.7), 0.12, rough);
-      col += vec3(0.92, 0.95, 1.00) * 3.4 * k * box(r, vec3(0.45, 0.6, 0.7), 0.12, rough);
-      col += vec3(0.85, 0.90, 1.00) * 2.6 * k * box(r, vec3(0.05, 0.1, 1.0), 0.06, rough) * st(-0.9, 0.2, r.x);
-      col += vec3(0.80, 0.88, 1.00) * 3.2 * k * box(r, vec3(-0.55, 0.75, 0.25), 0.05, rough);
-      col += vec3(0.60, 0.62, 0.65) * 1.0 * k * box(r, vec3(1.0, 0.25, -0.15), 0.14, rough);
+      col += vec3(1.00, 0.97, 0.92) * 7.0 * k * box(r, vec3(0.45, -0.6, 0.7), 0.12, rough);
+      col += vec3(0.92, 0.95, 1.00) * 2.2 * k * box(r, vec3(0.45, 0.6, 0.7), 0.12, rough);
+      col += vec3(0.85, 0.90, 1.00) * 1.3 * k * box(r, vec3(0.05, 0.1, 1.0), 0.06, rough) * st(-0.9, 0.2, r.x);
+      col += vec3(0.80, 0.88, 1.00) * 4.6 * k * box(r, vec3(-0.55, 0.75, 0.25), 0.05, rough);
+      col += vec3(0.60, 0.62, 0.65) * 0.7 * k * box(r, vec3(1.0, 0.25, -0.15), 0.14, rough);
       return col;
     }
     vec3 envIrradiance(vec3 n) {
@@ -120,7 +124,8 @@
       // 发光缓冲：只有自发光量，其余写黑（但照常写深度，挡住后面的发光件）
       if (uGlowPass > 0.5) { gl_FragColor = vec4(uGlowColor * glow * (1.0 - uUseFlat), 1.0); return; }
       // 剖视：被剖切面切开的蒙皮从里面看是暗的内壁（不分档，只随朝上程度略变）
-      if (!gl_FrontFacing) {
+      // uCap：0 = 暗内壁（空心蒙皮）、1 = 实心剖面、2 = 薄壳（玻璃：背面照常着色，半透明）
+      if (!gl_FrontFacing && uCap < 1.5) {
         if (uCap > 0.5) {
           // 剖面（被剖切面切开的实心零件）：比本体亮一档的平色 + 极淡的 45° 细斜线（屏幕空间，每 7 像素一道）
           float h = fract((gl_FragCoord.x + gl_FragCoord.y) / 7.0);
@@ -143,7 +148,8 @@
         vec3 v = normalize(uViewDir);
         float nv = max(dot(n, v), 1e-3);
         vec3 base = toLin(uTone[3]) * uPbr.z;
-        float occl = mix(1.0, vAO, uAOK);
+        // 烘焙 AO 在 B 里压得更重（幂 1.8），缝隙与内角读得出体积
+        float occl = pow(mix(1.0, vAO, uAOK), 1.8);
         float line = 1.0;
         if (uUseDetail > 0.5) {
           vec3 d = texture2D(uDetail, vUv).rgb;
@@ -154,9 +160,14 @@
         float metal = uPbr.x;
         vec3 F0 = mix(vec3(0.04), base, metal);
         vec3 F = F0 + (max(vec3(1.0 - rough), F0) - F0) * pow(1.0 - nv, 5.0);
-        vec3 spec = envRadiance(camDir(reflect(-v, n)), rough) * F * uEnvK;
+        // 盒投影反射：环境当成转台四周约 6 m 的一个盒子，反射方向随位置偏一点——大块平切面上也有明暗渐变（金属感主要靠它）
+        vec3 rr = normalize(reflect(-v, n) + (vW - vec3(0.0, 0.0, 1.6)) * 0.11);
+        vec3 spec = envRadiance(camDir(rr), rough) * F * uEnvK;
         vec3 diff = base * (1.0 - metal) * envIrradiance(camDir(n)) * uEnvK;
-        vec3 lin = (diff * occl + spec * mix(1.0, occl, 0.6)) * line;
+        // 轮廓光：掠射角（n·v 小）处一圈冷色亮边，朝上、朝相机左后方的边更亮（跟着相机，审图机位不变）
+        vec3 nc = camDir(n);
+        float rim = pow(1.0 - nv, 4.0) * (0.3 + 0.7 * st(-0.3, 0.8, dot(nc, normalize(vec3(-0.4, 0.6, 0.7)))));
+        vec3 lin = (diff * occl + spec * mix(1.0, occl, 0.85) + vec3(0.42, 0.5, 0.58) * rim * (0.35 + 0.65 * metal) * uEnvK * occl) * line;
         vec3 cb = toSrgb(lin);
         if (uIsMouth > 0.5) cb = mix(uMouth[0], uMouth[1], smoothstep(0.0, 0.85, vDepth));
         cb *= uDim;
@@ -299,7 +310,8 @@
   const cutGlass = [];
   /**
    * section：被切开处画什么。"cap"（默认，实心零件）= 剖面：比本体最亮一档再亮一档的平色 + 极淡斜线；玻璃的剖面是青色；
-   * "inside"（空心的机身蒙皮）= 暗内壁，蒙皮自己的剖面由几何母版的剖面带（section.*）给出。
+   * "inside"（空心的机身蒙皮）= 暗内壁，蒙皮自己的剖面由几何母版的剖面带（section.*）给出；
+   * "shell"（座舱盖玻璃这类实心建模、实为薄壳的件）= 背面照常着色（半透明），玻璃的薄剖面由剖面带 section.canopy 给出。
    */
   const cutMaterial = (material, section = "cap") => {
     const key = `${material.uuid}|${section}`;
@@ -308,7 +320,7 @@
       const t = material.uniforms.uTone.value;
       const glass = material.uniforms.uGlint.value > 0;
       const cap = glass ? new THREE.Color(0x3f8f9c) : new THREE.Color().copy(t[4]).multiplyScalar(1.12).add(new THREE.Color().copy(t[4]).sub(t[2]).multiplyScalar(0.9));
-      m.uniforms = { ...material.uniforms, uCap: { value: section === "cap" ? 1 : 0 }, uCapColor: { value: cap }, uCapOpacity: { value: 1 } };
+      m.uniforms = { ...material.uniforms, uCap: { value: section === "cap" ? 1 : section === "shell" ? 2 : 0 }, uCapColor: { value: cap }, uCapOpacity: { value: 1 } };
       m.clipping = true;
       m.clippingPlanes = cutPlanes;
       m.side = THREE.DoubleSide;

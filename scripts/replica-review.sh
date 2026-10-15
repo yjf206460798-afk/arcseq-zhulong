@@ -26,7 +26,7 @@ views = [
     ("c2-tip-top", c2, [80, 365, 190, 416], 90, 90, [[tip, [89, 390.5]], [[8.5, 0, 1.65], [155, 390.5]]], 2, 8, "@focus"),
     ("c2-tip-side", c2, [582, 905, 690, 952], 90, 0, [[tip, [590, 929.5]], [[8.5, 0, 1.65], [632.42, 929.5]]], 2, 8, "@focus"),
     ("c2-tip-front", c2, [262, 895, 332, 955], 0, 0, [[tip, [297, 923.7]], [[9.5, 0.3, 1.65], [311, 923.7]]], 2, 8, "@focus"),
-    ("k1-cut", k1, [40, 170, 1720, 650], 90, 0, [[[9.17, 0, 1.66], [97, 449]], [[2.17, 0, 1.66], [1637, 449]]], 3, 1, "__arcseq.cutaway(true)"),
+    ("k1-cut", k1, [40, 170, 1720, 650], 90, 0, [[[9.17, 0, 1.66], [97, 449]], [[2.17, 0, 1.66], [1637, 449]]], 3, 1, "__arcseq.set('sensor',1);__arcseq.cutaway(true)"),
 ]
 out = []
 for look, page in (("A", "dist/index.html"), ("B", "dist/metal.html")):
@@ -57,7 +57,11 @@ for L in A:dist/index.html B:dist/metal.html; do
   $S --page $P --mode lines --prefix CLOSE-$T --views 60 --elevation 12 --tag 4x-rcs --scale 2 --pre "__arcseq.view(60,'lines',12);__arcseq.focus('rcs.l',4)"
   $S --page $P --mode lines --prefix CLOSE-$T --views 30 --elevation 10 --tag 12x-eye --scale 2 --pre "$ON;__arcseq.view(30,'lines',10);__arcseq.focus('sensor',12)"
   $S --page $P --mode lines --prefix CLOSE-$T --views 60 --tag 12x-roller --scale 2 --pre "__arcseq.view(60,'lines');__arcseq.focus([4.52,0.5,2.22],12)"
-  $S --page $P --mode lines --prefix CLOSE-$T --views 90 --elevation 0 --tag 4x-cockpit-cut --scale 2 --pre "__arcseq.cutaway(true).then(()=>{__arcseq.view(90,'lines',0);__arcseq.focus([3.35,0,2.2],3.2)})"
+  $S --page $P --mode lines --prefix CLOSE-$T --views 90 --elevation 0 --tag 4x-cockpit-cut --scale 2 --pre "__arcseq.set('sensor',1);__arcseq.cutaway(true).then(()=>{__arcseq.view(90,'lines',0);__arcseq.focus([3.35,0,2.2],3.2)})"
+  $S --page $P --mode lines --prefix CLOSE-$T --views 100 --elevation 25 --tag 7x-pilot --scale 2 --pre "__arcseq.cutaway(true).then(()=>{__arcseq.view(100,'lines',25);__arcseq.focus([3.3,0,2.3],7)})"
+  # A/B 3/4 斜视（金属质感在斜视里才读得出）：外形通电、剖视各一张
+  $S --page $P --mode lines --prefix OBLIQUE-$T --views 30 --elevation 25 --tag ext --scale 2 --pre "$ON;__arcseq.view(30,'lines',25);__arcseq.focus([5.2,0,1.9],1.7)"
+  $S --page $P --mode lines --prefix OBLIQUE-$T --views 60 --elevation 22 --tag cut --scale 2 --pre "__arcseq.set('sensor',1);__arcseq.cutaway(true).then(()=>{__arcseq.view(60,'lines',22);__arcseq.focus([5.0,0,1.9],1.8)})"
 done
 
 # 4. 三张目标帧（A、B）与 300 px 缩略图

@@ -15,7 +15,7 @@ PALETTE = {
     "hull": "#484d50", "belly": "#343a40", "carbon": "#232527", "glass": "#12161a", "interior": "#24282a", "sensor": "#281c12",
     "void": "#0c0e10", "deck": "#0b0f11", "frame": "#323538", "metal": "#41464a", "chrome": "#5c646a", "rubber": "#1b1c1e",
     "iris": "#1f2124", "vermilion": "#8f3224", "stand": "#1c2023", "structure": "#494e51", "avionics": "#46463f", "panel": "#323330",
-    "pipe": "#424c50", "cable": "#272a2b", "tank": "#555d61", "screen": "#1a2a2f", "seat": "#333537", "suit": "#47494b",
+    "pipe": "#424c50", "cable": "#272a2b", "tank": "#555d61", "screen": "#1a2a2f", "seat": "#333537", "suit": "#47494b", "pad": "#4c5053", "strap": "#28292b", "visor": "#52391b",
     "helmet": "#626768", "section": "#727c7b", "label": "#737875", "hazard": "#6a4c23", "backwall": "#1f2326",
 }
 # 金属度、粗糙度（与网页 B 画法同一张表，src/figure/build.mjs 的 PBR）
@@ -23,7 +23,7 @@ PBR = {
     "hull": (0.55, 0.38), "belly": (0.4, 0.5), "carbon": (0.2, 0.35), "glass": (0.0, 0.05), "interior": (0.3, 0.6), "sensor": (0.0, 0.08),
     "frame": (0.7, 0.35), "metal": (0.9, 0.3), "chrome": (1.0, 0.12), "rubber": (0.0, 0.85), "iris": (0.6, 0.35), "vermilion": (0.2, 0.4),
     "stand": (0.5, 0.5), "structure": (0.75, 0.38), "avionics": (0.45, 0.45), "panel": (0.4, 0.5), "pipe": (0.85, 0.3), "cable": (0.1, 0.7),
-    "tank": (0.85, 0.28), "screen": (0.0, 0.1), "seat": (0.2, 0.7), "suit": (0.15, 0.65), "helmet": (0.4, 0.25), "section": (0.6, 0.4),
+    "tank": (0.85, 0.28), "screen": (0.0, 0.1), "seat": (0.2, 0.7), "suit": (0.15, 0.65), "pad": (0.15, 0.55), "strap": (0.05, 0.75), "visor": (0.6, 0.15), "helmet": (0.4, 0.25), "section": (0.6, 0.4),
     "label": (0.1, 0.5), "hazard": (0.2, 0.5), "backwall": (0.3, 0.7),
 }
 GLOW = {"sensor": ("#ffb060", 6.0), "screen": ("#7bdbec", 5.0)}

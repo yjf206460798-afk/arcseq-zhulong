@@ -4,7 +4,7 @@
    * cut 线层同样切掉；内部模块（DATA.modules.interior：GLB 与硬边，单独一个 dist/<名>.js）第一次打开剖视时才加载；
    * 带编号的标注（DATA.callouts + 模块里的 callouts）画在画布上方的 SVG 里：圆圈编号 + 竖直引线，右下角一张图例。
    */
-  const cutaway = { on: false, loading: null, modules: new Set() };
+  const cutaway = { on: false, loading: null, modules: new Set(), callouts: DATA.showCallouts ?? true };
   const callouts = [...(DATA.callouts ?? [])];
   window.__arcseqModule = (name, data) => {
     const parts = meshParts(data).map((p) => ({ ...p, show: p.show ?? "cutaway" }));
@@ -66,8 +66,9 @@
   function placeCallouts() {
     if (!overlay) return;
     overlay.replaceChildren();
-    if (legend) legend.hidden = !cutaway.on || !callouts.length;
-    if (!cutaway.on) return;
+    const on = cutaway.on && cutaway.callouts;
+    if (legend) legend.hidden = !on || !callouts.length;
+    if (!on) return;
     const rect = canvas.getBoundingClientRect();
     const host = stage.getBoundingClientRect();
     const items = callouts.map((c) => {
@@ -117,4 +118,9 @@
     /** 剖视开关（第一次打开时加载内部模块），返回 Promise。 */
     cutaway: (on = true) => setCutaway(on),
     modules: () => [...cutaway.modules],
+    /** 编号标注开关（DATA.showCallouts 是默认值）。 */
+    callouts: (on = true) => {
+      cutaway.callouts = !!on;
+      draw();
+    },
   });

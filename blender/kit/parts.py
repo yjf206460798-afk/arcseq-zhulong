@@ -81,8 +81,9 @@ def _fillet(pts, bend, steps=5):
         t = min(bend * math.tan(theta / 2), (b - a).length * 0.45, (c - b).length * 0.45)
         p1 = b - d1 * t
         p2 = b + d2 * t
-        for i in range(steps + 1):
-            f = i / steps
+        n = max(1, min(steps, math.ceil(theta / math.radians(22))))  # 取样按转角：小弯一两段就够（面数）
+        for i in range(n + 1):
+            f = i / n
             # 二次贝塞尔近似圆弧
             out.append(p1 * (1 - f) ** 2 + b * 2 * f * (1 - f) + p2 * f * f)
     out.append(P[-1])

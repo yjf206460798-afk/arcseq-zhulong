@@ -106,6 +106,10 @@ const PALETTE = {
   screen: ["#0c1417", "#0f191c", "#121e22", "#162428", "#1a2a2f"],
   seat: ["#1d1f20", "#222425", "#28292b", "#2d2f31", "#333537"],
   suit: ["#28292a", "#2f3031", "#363839", "#3e4042", "#47494b"],
+  /** 銜燭软态：抗荷气囊贴片（比服装略浅、略冷）、挽具织带（更暗）、收起的遮光面罩（暗琥珀，不是镜面金） */
+  pad: ["#2c2f31", "#333638", "#3b3e41", "#43474a", "#4c5053"],
+  strap: ["#161718", "#1a1b1c", "#1e1f21", "#232426", "#28292b"],
+  visor: ["#2a1d0e", "#332311", "#3d2a14", "#473117", "#52391b"],
   /** 剖视背景板（舱壁）：比结构件暗，只当底 */
   backwall: ["#121517", "#15181a", "#181b1e", "#1b1f22", "#1f2326"],
   helmet: ["#3a3d3e", "#434748", "#4d5152", "#575b5d", "#626768"],
@@ -113,7 +117,7 @@ const PALETTE = {
   /** 铭牌（设备箱上的浅色小牌）、警示件（弹射拉环等，暗琥珀） */
   label: ["#3c403f", "#434746", "#4a4e4d", "#525655", "#5a5e5d"],
   hazard: ["#3a2a14", "#453217", "#513a1b", "#5d431f", "#6a4c23"],
-  inside: "#0d1012",
+  inside: "#141c21",
   deck: ["#111619", "#13181b", "#151b1e", "#182023", "#1b2124"],
   bump: "#0a0c0d",
   lip: "#3a3f43",
@@ -131,13 +135,13 @@ const MATERIALS = {
   void: { tones: "body", shade: "hull", mouth: true },
   round: { tones: "body", shade: "round" },
 };
-for (const k of ["frame", "metal", "chrome", "rubber", "iris", "vermilion", "stand", "structure", "avionics", "panel", "pipe", "cable", "tank", "screen", "seat", "suit", "helmet", "section", "label", "hazard", "backwall"]) MATERIALS[k] = { tones: k, shade: ["metal", "chrome", "rubber", "pipe", "cable", "tank", "helmet", "suit"].includes(k) ? "round" : "facet" };
+for (const k of ["frame", "metal", "chrome", "rubber", "iris", "vermilion", "stand", "structure", "avionics", "panel", "pipe", "cable", "tank", "screen", "seat", "suit", "pad", "strap", "visor", "helmet", "section", "label", "hazard", "backwall"]) MATERIALS[k] = { tones: k, shade: ["metal", "chrome", "rubber", "pipe", "cable", "tank", "helmet", "suit", "pad", "strap", "visor"].includes(k) ? "round" : "facet" };
 /** B 画法的材质参数：[金属度, 粗糙度, 基色增益]（基色取色板第 4 档，换到线性空间再乘增益）。 */
 const PBR = {
-  hull: [0.55, 0.38, 4.5], belly: [0.4, 0.5, 4.0], carbon: [0.2, 0.35, 2.4], glass: [0.0, 0.05, 1.0], interior: [0.3, 0.55, 4.0], sensor: [0.0, 0.08, 1.6],
+  hull: [0.62, 0.34, 3.6], belly: [0.45, 0.45, 3.4], carbon: [0.2, 0.35, 2.4], glass: [0.0, 0.05, 1.0], interior: [0.3, 0.55, 4.0], sensor: [0.0, 0.08, 1.6],
   void: [0.2, 0.6, 1.0], round: [0.5, 0.45, 3.0], frame: [0.7, 0.35, 3.2], metal: [0.85, 0.3, 4.5], chrome: [1.0, 0.12, 3.5], rubber: [0.0, 0.8, 2.2],
   iris: [0.6, 0.35, 3.0], vermilion: [0.2, 0.4, 1.7], stand: [0.5, 0.5, 2.0], structure: [0.75, 0.36, 5.0], avionics: [0.45, 0.42, 6.0], panel: [0.4, 0.45, 5.0],
-  pipe: [0.85, 0.3, 5.0], cable: [0.1, 0.65, 3.0], tank: [0.85, 0.28, 4.5], screen: [0.0, 0.1, 1.5], seat: [0.25, 0.6, 4.5], suit: [0.15, 0.6, 5.0],
+  pipe: [0.85, 0.3, 5.0], cable: [0.1, 0.65, 3.0], tank: [0.85, 0.28, 4.5], screen: [0.0, 0.1, 1.5], seat: [0.25, 0.6, 4.5], suit: [0.15, 0.6, 5.0], pad: [0.15, 0.55, 5.0], strap: [0.05, 0.75, 3.0], visor: [0.6, 0.15, 2.0],
   helmet: [0.4, 0.25, 4.0], section: [0.6, 0.4, 2.0], label: [0.1, 0.5, 3.5], hazard: [0.2, 0.5, 3.0], backwall: [0.3, 0.7, 2.2],
 };
 for (const [k, m] of Object.entries(MATERIALS)) {
@@ -149,9 +153,9 @@ for (const [k, m] of Object.entries(MATERIALS)) {
  * accents：作品标志色的线（朱红棱线）：线宽同主描边、偏暗不荧光；idle 为未通电时的亮度（三四成），通电后由机头沿线点亮并进发光缓冲。
  */
 const LINES = {
-  width: [0.75, 0.5, 0.42],
+  width: [0.9, 0.55, 0.35],
   color: ["#b9c7cb", "#7d939c", "#7d939c"],
-  alpha: [0.72, 0.62, 0.34],
+  alpha: [0.78, 0.6, 0.3],
   bias: 0.02,
   contourBias: 0.2,
   accents: { chine: { color: "#c8412c", width: 0.75, alpha: 0.95, idle: 0.38, glow: "#ff5a32", key: "chine" } },
@@ -188,7 +192,8 @@ const POST = {
 };
 /** 环境色（配色卡第 5 角色）：机库段冷灰；天门 / 太空段深蓝黑（入轨演出在两者之间过渡）。 */
 const ENVIRONMENTS = {
-  hangar: { background: "#111518" },
+  /** 机库：深蓝黑竖向渐变（R3 反馈：不用纯黑），中间值仍是品牌背景基准附近 */
+  hangar: { background: "#0f171c", backdrop: { top: "#152029", bottom: "#0a0f13" } },
   /**
    * 太空 / 天门段：机体压暗 dim（沉进深蓝黑，靠线条与朱红、烛光读出），台面更暗；背景两端渐变 + 稀疏星点 + 地球弧。
    * 地球弧：屏幕坐标（以画幅宽为单位）里的大圆，centre 为圆心的 (u, v)，radius 为半径；辉线 rim（大气，淡青）宽 rimWidth、外晕 halo。
@@ -240,6 +245,10 @@ const DATA = {
   parts: G.parts,
   mesh: G.mesh,
   callouts: G.callouts ?? [],
+  /** 剖视时的发光（R3 反馈：屏幕青光、平视显示器、红灯只作点缀，不过曝） */
+  cutawayPower: { cockpit: 0.3, "cockpit.hud": 0.2, "cockpit.red": 0.1 },
+  /** 编号标注：图例文字没定稿前不显示（__arcseq.callouts(true) 打开） */
+  showCallouts: false,
   modules: Object.fromEntries(Object.keys(G.modules ?? {}).map((k) => [k, `zhulong-${k}.js`])),
   seams: G.seams,
   landmarks: Object.fromEntries(Object.entries(G.landmarks).map(([k, v]) => [k, v.map(r4)])),

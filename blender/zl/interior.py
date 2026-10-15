@@ -12,11 +12,15 @@ K1 → 机体坐标（refs/layout/README：K1 比例尺不可信，只取相对�
 剖视只从 +y 一侧看：舱壁、舱侧板只做远侧（y < 0）那一片当背景，近侧不做（否则挡住内部）。全部零件用 blender/kit。
 """
 import math
+import sys
+
+import numpy as np
 
 from mathutils import Vector
 
-from kit.parts import actuator, beam, bolts, box, bracket, clamp, connector, cylinder, ellipsoid, frame, hull, lathe, merge, pipe, pump, tank, valve
+from kit.parts import actuator, beam, bolts, box, bracket, clamp, connector, cylinder, drum, ellipsoid, frame, hull, lathe, merge, pipe, pump, tank, valve
 
+from . import k1table, pilot
 from .nose import EYE, S_END, S_FLAT as S_FLAT_I, Z_TIP, at, ring, top_profile
 from .util import XN, lerp
 
@@ -34,8 +38,9 @@ K1_FLOOR = 482.0  # K1 起落架舱顶（地板梁）
 Z_GEAR = Z_TIP - 0.1  # 我们的起落架舱顶
 LIFT = 0.2  # 座舱设备（kc）相对均匀比例的抬高
 ZF = Z_TIP + 0.03  # 座舱地板面
-SRP = (6.15, Z_TIP + 0.31)  # 座椅参考点（椅面与椅背交线中点）：s、z
-BACK = math.radians(33)  # 椅背后倾
+SRP = (6.15, Z_TIP + 0.25)  # 座椅参考点（椅面与椅背交线中点）：s、z；头盔顶离座舱盖内表面留约 4 cm（build 时打印）
+BACK = math.radians(30)  # 椅背后倾（R3 反馈：约 30°）
+GRIPS = {"R": at(5.98, -0.33, Z_TIP + 0.68), "L": at(6.0, 0.33, Z_TIP + 0.65)}  # 侧杆（右）、油门（左）握把中心：1.74 m 驾驶员半躺时手够得着的位置
 
 
 def _interp(tab, x):
@@ -152,8 +157,8 @@ Y = Vector((0, 1, 0))  # 朝左（剖视时朝观众）
 Z = Vector((0, 0, 1))
 
 
-# —— 结构：隔框每约 0.5 m（K1 的舱壁站位 + 补齐）、远侧桁条、中线上下纵梁 ————————————————
-FRAME_S = [0.56, 0.99, 1.51, 2.21, 2.65, 3.08, 3.49, 3.9, 4.03, 4.43, 4.84, 5.3, 5.8, 6.3, 6.8, 7.3]
+# —— 结构：隔框每约 0.5 m（K1 零件表的框站位 + 补齐）、远侧桁条、中线上下纵梁 ————————————————
+FRAME_S = [0.56, 0.99, 1.51, 2.21, 2.65, 3.08, 3.49, 3.9, 4.03, 4.43, 4.84, 5.3, 5.8, 6.3, 6.67, 7.04, 7.4]  # K1 零件表里提到的框：2.19、3.10、4.06、4.84、5.75、7.04
 CANOPY_OPEN = (4.84, 7.0)  # 座舱开口：这一段的隔框不封顶（U 形）
 
 
@@ -240,12 +245,15 @@ def harness(acc):
         ri = inner_ring(s, SKIN + 0.07)
         mid = (ri[5] + Vector((0, 0.01, 0))) if s < CANOPY_OPEN[0] else (ri[5] + Vector((0, 0.03, 0)))
         collect(acc, pipe(f"int.harness.drop.{k}", [a + X * 0.04, mid + X * 0.04, b + X * 0.04], 0.008, bend=0.08, sides=6, material="cable", props=P))
+        # 支线两端的插头、中间两只卡在框上的卡箍（轻量 8 边件，合成一个对象）
+        fits = []
         for j, p in enumerate((a + X * 0.04, b + X * 0.04)):
-            collect(acc, connector(f"int.harness.drop.{k}.c{j}", p, X, 0.01, length=0.025, props=P))
-        # 每段支线上两只卡箍，卡在框上
+            fits.append(cylinder(f"int.harness.drop.{k}.c{j}", p - X * 0.012, p + X * 0.012, 0.013, 8, "metal", P, bevel=0.0))
         for j, f in enumerate((0.33, 0.66)):
             p = (a.lerp(mid, f * 2) if f < 0.5 else mid.lerp(b, f * 2 - 1)) + X * 0.04
-            collect(acc, clamp(f"int.harness.drop.{k}.clip{j}", p, (mid - a) if f < 0.5 else (b - mid), 0.008, props=P))
+            d = ((mid - a) if f < 0.5 else (b - mid)).normalized()
+            fits.append(cylinder(f"int.harness.drop.{k}.clip{j}", p - d * 0.006, p + d * 0.006, 0.0105, 8, "metal", P, bevel=0.0))
+        collect(acc, merge(f"int.harness.drop.{k}.fittings", fits, material="metal", props={**P, "lineLevel": "secondary"}))
 
 
 # —— 机头尖：眼珠座、传感器组 ② ——————————————————————————————————————
@@ -255,7 +263,7 @@ def nose_bay(acc):
     # 眼珠后座：八角环座 + 驱动短轴（K1：眼后面的多边形座与伸出的短轴）
     collect(acc, frame("int.eye.mount", list(reversed(inner_ring(s_m, SKIN + 0.008))), depth=0.018, width=0.022, material="structure", props=P))
     collect(acc, cylinder("int.eye.shaft", at(EYE["s"] + 0.07, 0, c.z), at(ks(133), 0, c.z), 0.016, 14, "chrome", P))
-    collect(acc, cylinder("int.eye.motor", at(ks(122), 0, c.z), at(ks(140), 0, c.z), 0.03, 18, "avionics", P))
+    collect(acc, drum("int.eye.motor", at(ks(122), 0, c.z), at(ks(140), 0, c.z), 0.03, bands=1, material="avionics", props=P))
     collect(acc, bolts("int.eye.motor.bolts", at(ks(122) - 0.002, 0.02, c.z + 0.02), at(ks(122) - 0.002, -0.02, c.z - 0.02), 2, 0.004, -X, props=P))
     # 接线簇（K1 x 153～185）：小盒 + 两圈线
     cc, _ = kbox(acc, "int.nose.junction", 155, 437, 185, 458, want=0.1, face="+y", panel=False, handles=False, plugs=2)
@@ -315,7 +323,7 @@ def rcs_bay(acc):
     collect(acc, connector("int.rcs.cross", k1(443, 460), Y, 0.011, length=0.03, props=P))
     for k, y in enumerate((425, 441, 460, 470)):
         collect(acc, pipe(f"int.rcs.run.{k}", [k1(400 if k in (1, 2) else 428, y, 0.05 - 0.03 * k), k1(505, y, 0.05 - 0.03 * k)], 0.0075 if k in (1, 2) else 0.009, props=P))
-    collect(acc, cylinder("int.rcs.tvalve.body", k1(473, 475), k1(473, 421), 0.016, 14, "metal", P))
+    collect(acc, drum("int.rcs.tvalve.body", k1(473, 475), k1(473, 421), 0.016, bands=2, props=P))
     collect(acc, valve("int.rcs.tvalve", k1(473, 431), Y, 0.011, props=P))
     collect(acc, valve("int.rcs.tvalve.low", k1(473, 468), X, 0.01, props=P, top=Y))
 
@@ -341,7 +349,7 @@ def avionics_fwd(acc):
         collect(acc, connector(f"int.av.down.{k}.nut", k1(x, 477, 0.06 - 0.06 * k), -Z, 0.009, length=0.025, props=P))
     # 阀组（x 657～692）：竖管 + 阀体 + 侧接头
     collect(acc, pipe("int.av.stack.pipe", [k1(668, 388), k1(668, 498)], 0.009, props=P))
-    collect(acc, cylinder("int.av.stack.body", k1(668, 456), k1(668, 431), kl(10), 16, "metal", P))
+    collect(acc, drum("int.av.stack.body", k1(668, 456), k1(668, 431), kl(10), bands=1, props=P))
     collect(acc, cylinder("int.av.stack.cap", k1(668, 433), k1(668, 428), kl(12), 16, "metal", P))
     collect(acc, connector("int.av.stack.side", k1(678, 445), -X, 0.012, length=0.035, props=P))
     collect(acc, pipe("int.av.stack.out", [k1(690, 445), k1(700, 445), k1(712, 455)], 0.008, props=P))
@@ -368,35 +376,6 @@ def avionics_aft(acc):
     collect(acc, valve("int.brow.valve", k1(1017, 460), X, 0.01, props=P))
     collect(acc, pipe("int.brow.hyd.0", [k1(1027, 451, 0.1), k1(1027, 462, 0.1), k1(1040, 462, 0.05)], 0.006, props=P))
     collect(acc, pipe("int.brow.hyd.1", [k1(1051, 451, -0.1), k1(1051, 462, -0.1), k1(1040, 462, -0.05)], 0.006, props=P))
-
-
-# —— 管排：顶上两根、底下两根，贯穿机头段（K1 的长横管），卡箍每 0.4 m ————————————————
-def pipe_runs(acc):
-    runs = [
-        ("top.0", [(160, 440), (255, 427), (440, 425), (510, 404), (650, 397), (880, 380), (1000, 372)], 0.04, 0.011, "pipe"),
-        ("top.1", [(345, 409), (440, 409), (520, 398), (700, 383), (880, 366)], -0.05, 0.009, "pipe"),
-        ("top.2", [(200, 434), (440, 420), (700, 392), (880, 374)], -0.08, 0.013, "cable"),
-        ("bot.0", [(155, 467), (345, 467), (546, 495), (800, 500), (911, 505)], 0.03, 0.01, "pipe"),
-        ("bot.1", [(600, 510), (669, 510), (692, 514), (1000, 516)], -0.05, 0.009, "pipe"),
-        ("bot.2", [(230, 468), (500, 496), (800, 518), (1000, 520)], -0.09, 0.012, "cable"),
-    ]
-    for name, pts, dy, r, mat in runs:
-        P3 = [k1(x, y, dy) for x, y in pts]
-        collect(acc, pipe(f"int.run.{name}", P3, r, material=mat, props=P))
-        L = sum((b - a).length for a, b in zip(P3, P3[1:]))
-        n = int(L / 0.4)
-        clamps = []
-        for k in range(1, n + 1):
-            f = k / (n + 1) * L
-            for a, b in zip(P3, P3[1:]):
-                seg = (b - a).length
-                if f <= seg:
-                    p = a.lerp(b, f / seg)
-                    clamps.append(clamp(f"int.run.{name}.c{k}", p, b - a, r, props=P))
-                    break
-                f -= seg
-        if clamps:
-            collect(acc, merge(f"int.run.{name}.clamps", clamps, props=P))
 
 
 # —— ⑭ 前起落架舱（收起，机轮朝前）——————————————————————————————————————
@@ -438,9 +417,17 @@ def cockpit(acc):
     for k, s in enumerate((5.4, 5.9, 6.4, 6.9)):
         collect(acc, beam(f"int.cp.subpost.{k}", at(s, -0.3, Z_GEAR + 0.04), at(s, -0.3, ZF - 0.12), 0.03, 0.03, X, kind="angle", props=P))
     collect(acc, hull("int.cp.footwell", [at(s, y, z + dz) for s, z in ((s_b + 0.04, Z_TIP + 0.42), (5.34, ZF)) for y in (0.36, -0.36) for dz in (0, -0.02)], "structure", PC, bevel=0.004))
-    # 脚蹬（两块踏板，斜板上）
-    for side in (1, -1):
-        collect(acc, hull(f"int.cp.pedal.{'lr'[side < 0]}", [at(s, 0.13 * side + dy, z + dz) for s, z in ((5.08, Z_TIP + 0.27), (5.2, Z_TIP + 0.16)) for dy in (-0.05, 0.05) for dz in (0.0, 0.025)], "metal", P, bevel=0.004))
+    # 座舱远侧侧壁（K1 驾驶员身后那片深色舱壁）：按框分成四块壁板，每块内缩 1 cm、四角螺钉，中间一道横向加强筋
+    edges = [5.4, 5.8, 6.3, 6.67, 6.96]  # 屏幕墙（s 5.07～5.4）之后才开始，不挡屏幕
+    zt = Z_TIP + 0.9
+    for k, (sa, sb_) in enumerate(zip(edges, edges[1:])):
+        hw = min(half_width(ss, zz) for ss in (sa, sb_) for zz in (ZF + 0.01, zt))
+        yw = -min(0.41, hw - 0.012)
+        pts = [at(ss, yw + d, zz) for ss in (sa + 0.012, sb_ - 0.012) for zz in (ZF + 0.012, zt) for d in (0.0, -0.01)]
+        collect(acc, hull(f"int.cp.wall.{k}", pts, "backwall", P, bevel=0.003))
+        collect(acc, beam(f"int.cp.wall.{k}.rib", at(sa + 0.03, yw + 0.012, Z_TIP + 0.47), at(sb_ - 0.03, yw + 0.012, Z_TIP + 0.47), 0.024, 0.03, Y, kind="angle", props=P))
+        for zz in (ZF + 0.04, zt - 0.03):
+            collect(acc, bolts(f"int.cp.wall.{k}.bolts{int(zz > Z_TIP + 0.5)}", at(sa + 0.03, yw + 0.001, zz), at(sb_ - 0.03, yw + 0.001, zz), 2, 0.005, Y, props=P))
     # 前仪表：⑪ 环形屏幕墙（五块，圆心在 s 5.55、半径 0.48，后仰 10°）+ 遮光罩 + ⑩ 平视显示器
     R, sc = 0.48, 5.55
     z0, z1 = Z_TIP + 0.5, Z_TIP + 0.92
@@ -460,28 +447,30 @@ def cockpit(acc):
     collect(acc, hull("int.cp.coaming", [at(sc - (R + 0.06) * math.cos(a), (R + 0.06) * math.sin(a), z) for a in (math.radians(-48), 0.0, math.radians(48)) for z in (z1, z1 + 0.04)] + [at(sc - (R - 0.06) * math.cos(a), (R - 0.06) * math.sin(a), z1 + 0.035) for a in (math.radians(-40), 0.0, math.radians(40))], "interior", PC, bevel=0.008))
     hs = sc - R + 0.08
     collect(acc, box("int.cp.hud.projector", at(hs, 0, z1 + 0.06), (0.12, 0.16, 0.05), material="interior", face="+z", panel=False, handles=False, plugs=0, props=P))
-    collect(acc, hull("int.cp.hud", [at(hs + 0.02 + t * 0.06, y, z1 + 0.09 + t * 0.12 + d) for t in (0, 1) for y in (0.075, -0.075) for d in (0, 0.004)], "glass", {**P, "glass": True, "glow": {"key": "cockpit", "color": "#7bdbec"}}, bevel=0.001))
+    collect(acc, hull("int.cp.hud", [at(hs + 0.02 + t * 0.06, y, z1 + 0.09 + t * 0.12 + d) for t in (0, 1) for y in (0.075, -0.075) for d in (0, 0.004)], "glass", {**P, "glass": True, "glow": {"key": "cockpit.hud", "color": "#7bdbec"}}, bevel=0.001))
     collect(acc, hull("int.cp.hud.frame", [at(hs + 0.015 + t * 0.06, y, z1 + 0.085 + t * 0.12) for t in (0, 1) for y in (0.08, -0.08)] + [at(hs + 0.015 + t * 0.06 - 0.008, y, z1 + 0.085 + t * 0.12) for t in (0, 1) for y in (0.08, -0.08)], "frame", P, bevel=0.0015))
     # 脚下的红灯单元（K1 屏幕下那块红色格栅）
-    collect(acc, box("int.cp.redunit", at(5.22, 0.25, ZF + 0.16), (0.2, 0.1, 0.12), material="vermilion", face="+y", panel=False, handles=False, plugs=0, props={**P, "glow": {"key": "cockpit.red", "color": "#ff5a32"}}, grille=4))
+    collect(acc, box("int.cp.redunit", at(5.2, 0.25, ZF + 0.2), (0.12, 0.07, 0.07), material="vermilion", face="+y", panel=False, handles=False, plugs=0, ears=False, props={**P, "glow": {"key": "cockpit.red", "color": "#c8412c"}}, grille=2))
     # 两侧操纵台（左油门、右侧杆），台面两块小面板 + 侧杆 / 油门柄
     for side, name in ((-1, "stick"), (1, "throttle")):
         y0 = 0.33 * side
         if side < 0:  # 近侧（左）操纵台剖视时挡住驾驶员，只做远侧这一台；左边只留扶手和油门座
             collect(acc, box(f"int.cp.console.{name}", at(5.95, y0 + 0.04 * side, Z_TIP + 0.42), (0.9, 0.12, 0.2), material="interior", face="+z", handles=False, plugs=0, props=P, split=1, corner_bolts=True))
         else:
-            collect(acc, box(f"int.cp.console.{name}", at(5.82, y0 + 0.04 * side, Z_TIP + 0.49), (0.32, 0.1, 0.06), material="interior", face="+z", panel=False, handles=False, plugs=0, props=P))
-        collect(acc, beam(f"int.cp.armrest.{name}", at(6.35, y0, Z_TIP + 0.56), at(5.62, y0, Z_TIP + 0.56), 0.07, 0.03, Z, kind="box", props=P))
-    base = at(5.72, -0.33, Z_TIP + 0.53)
+            collect(acc, box(f"int.cp.console.{name}", at(6.0, y0 + 0.04 * side, Z_TIP + 0.51), (0.36, 0.1, 0.06), material="interior", face="+z", panel=False, handles=False, plugs=0, props=P))
+        collect(acc, beam(f"int.cp.armrest.{name}", at(6.42, y0, Z_TIP + 0.56), at(6.1, y0, Z_TIP + 0.56), 0.07, 0.03, Z, kind="box", props=P))
+    base = GRIPS["R"] - Z * 0.16 - X * 0.02
     collect(acc, cylinder("int.cp.stick.boot", base, base + Z * 0.04, 0.03, 14, "rubber", P, r2=0.018))
     collect(acc, cylinder("int.cp.stick", base + Z * 0.03, base + Z * 0.12 + X * 0.01, 0.011, 10, "metal", P))
     collect(acc, hull("int.cp.stick.grip", [base + Z * (0.11 + dz) + X * (0.01 + dx) + Y * dy for dx in (-0.025, 0.02) for dy in (-0.018, 0.018) for dz in (0, 0.1)] + [base + Z * 0.215 + X * 0.03 + Y * dy for dy in (-0.012, 0.012)], "rubber", P, bevel=0.008))
-    base = at(5.82, 0.33, Z_TIP + 0.53)
+    base = GRIPS["L"] - Z * 0.10 + X * 0.025
     collect(acc, hull("int.cp.throttle.slot", [base + X * dx + Y * dy + Z * dz for dx in (-0.12, 0.12) for dy in (-0.012, 0.012) for dz in (-0.004, 0.003)], "void", {**P, "lineLevel": "secondary"}, bevel=0.0))
     collect(acc, cylinder("int.cp.throttle", base, base + Z * 0.08 - X * 0.02, 0.01, 10, "metal", P))
     collect(acc, hull("int.cp.throttle.grip", [base + Z * (0.07 + dz) - X * (0.02 + dx) + Y * dy for dx in (-0.03, 0.04) for dy in (-0.025, 0.02) for dz in (0, 0.06)], "rubber", P, bevel=0.008))
     # ⑬ 头顶开关板：挂在座舱盖弓形框下（s 5.85）
-    collect(acc, box("int.cp.overhead", at(5.85, 0, Z_TIP + 1.17), (0.16, 0.36, 0.035), material="interior", face="-z" if False else "+z", panel=True, handles=False, plugs=0, props={**P, "glow": {"key": "cockpit", "color": "#7bdbec"}}, split=2))
+    collect(acc, box("int.cp.overhead", at(5.85, 0, Z_TIP + 1.17), (0.16, 0.36, 0.035), material="interior", face="+z", panel=True, handles=False, plugs=0, ears=False, props=P, split=2))
+    # 开关板下沿一排指示灯（只有这一条发青光）
+    collect(acc, hull("int.cp.overhead.lamps", [at(5.85 + dx, y, Z_TIP + 1.17 - 0.0175 - dz) for dx in (-0.05, -0.04) for y in (-0.14, 0.14) for dz in (0.0, 0.003)], "screen", {**P, "glow": {"key": "cockpit", "color": "#7bdbec"}}, bevel=0.0))
     return seat_and_pilot(acc)
 
 
@@ -532,43 +521,39 @@ def seat_and_pilot(acc):
         collect(acc, beam(f"int.seat.leg.{'lr'[side < 0]}", pan(0.3, -0.09, 0.18 * side), at(s0 - 0.2, 0.18 * side, ZF + 0.005), 0.04, 0.03, X, kind="box", props=P))
     collect(acc, pipe("int.seat.handle", [pan(0.46, -0.02, 0.07), pan(0.5, 0.06, 0.07), pan(0.5, 0.06, -0.07), pan(0.46, -0.02, -0.07)], 0.009, bend=0.02, material="hazard", props=P))
 
-    # —— ⑧ 驾驶员：压力服、半躺 33°。尺寸取成年人第 50 百分位（坐高约 0.91 m，大腿 0.55，小腿 0.5）——
-    hip = p(0.08, 0.13)
-    sh_l = p(0.52, 0.12, 0.2)
-    head = p(0.75, 0.15)
-    collect(acc, ellipsoid("int.pilot.pelvis", hip, (0.15, 0.19, 0.11), (_v(sb, cb), Vector((0, 1, 0)), _v(-cb, sb)), material="suit", props=P))
-    collect(acc, ellipsoid("int.pilot.abdomen", p(0.25, 0.13), (0.14, 0.17, 0.11), (_v(sb, cb), Vector((0, 1, 0)), _v(-cb, sb)), material="suit", props=P))
-    collect(acc, ellipsoid("int.pilot.chest", p(0.45, 0.13), (0.15, 0.21, 0.13), (_v(sb, cb), Vector((0, 1, 0)), _v(-cb, sb)), material="suit", props=P))
-    collect(acc, box("int.pilot.chestpack", p(0.42, 0.26), (0.08, 0.22, 0.16), rot=_rot_back(), material="avionics", face="-x", panel=True, handles=False, plugs=2, props=P))
-    collect(acc, lathe("int.pilot.neckring", p(0.6, 0.14), p(0.65, 0.15), [(0, 0.09), (0.3, 0.1), (1, 0.095)], 24, "metal", P))
-    collect(acc, ellipsoid("int.pilot.helmet", head, (0.135, 0.125, 0.14), (_v(sb, cb), Vector((0, 1, 0)), _v(-cb, sb)), u=32, v=16, material="helmet", props=P))
-    collect(acc, ellipsoid("int.pilot.visor", head + _v(-cb, sb) * 0.035 + _v(sb, cb) * 0.0, (0.085, 0.112, 0.11), (_v(sb, cb), Vector((0, 1, 0)), _v(-cb, sb)), u=24, v=12, material="glass", props={**P, "glass": True}))
-    collect(acc, lathe("int.pilot.helmet.rim", head - _v(sb, cb) * 0.07, head - _v(sb, cb) * 0.05, [(0, 0.118), (1, 0.124)], 28, "metal", P))
-    # 肩、上臂、肘、前臂、手（右手握侧杆、左手握油门）
-    grips = {1: at(5.86, 0.33, Z_TIP + 0.64), -1: at(5.76, -0.33, Z_TIP + 0.7)}
-    for side in (1, -1):
-        tag = "lr"[side < 0]
-        sh = p(0.52, 0.12, 0.2 * side)
-        collect(acc, ellipsoid(f"int.pilot.shoulder.{tag}", sh, (0.08, 0.08, 0.08), material="suit", props=P))
-        hand = grips[side]
-        el = p(0.24, 0.24, 0.27 * side)
-        collect(acc, lathe(f"int.pilot.upperarm.{tag}", sh, el, [(0, 0.06), (0.5, 0.058), (1, 0.05)], 16, "suit", P))
-        collect(acc, ellipsoid(f"int.pilot.elbow.{tag}", el, (0.055, 0.055, 0.055), material="suit", props=P))
-        collect(acc, lathe(f"int.pilot.forearm.{tag}", el, hand + (el - hand).normalized() * 0.06, [(0, 0.05), (0.6, 0.045), (1, 0.04)], 16, "suit", P))
-        collect(acc, ellipsoid(f"int.pilot.glove.{tag}", hand, (0.06, 0.04, 0.05), material="rubber", props=P))
-        # 大腿、膝、小腿、靴
-        h = hip + Y * 0.1 * side + _v(-cb, sb) * 0.02
-        knee = at(5.62, 0.12 * side, Z_TIP + 0.5)
-        ankle = at(5.27, 0.13 * side, Z_TIP + 0.15)
-        toe = at(5.11, 0.13 * side, Z_TIP + 0.3)
-        collect(acc, lathe(f"int.pilot.thigh.{tag}", h, knee, [(0, 0.085), (0.4, 0.08), (1, 0.06)], 18, "suit", P))
-        collect(acc, ellipsoid(f"int.pilot.knee.{tag}", knee + Vector((0.01, 0, 0.02)), (0.065, 0.06, 0.06), material="avionics", props=P))
-        collect(acc, lathe(f"int.pilot.shin.{tag}", knee, ankle, [(0, 0.055), (0.3, 0.058), (1, 0.042)], 16, "suit", P))
-        collect(acc, hull(f"int.pilot.boot.{tag}", [ankle + Vector((dx, dy, dz)) for dx, dz in ((0.06, -0.06), (0.06, 0.08), (-0.05, -0.06), (-0.05, 0.06)) for dy in (-0.045, 0.045)] + [toe + Vector((dx, dy, dz)) for dx, dz in ((0.0, -0.035), (0.0, 0.03)) for dy in (-0.04, 0.04)], "rubber", P, bevel=0.015))
-    # 背带（两条斜带）与氧气管（胸前接头 → 座椅左侧）
-    for side in (1, -1):
-        collect(acc, pipe(f"int.pilot.strap.{'lr'[side < 0]}", [p(0.6, 0.2, 0.12 * side), p(0.45, 0.27, 0.06 * side), p(0.2, 0.25, 0.02 * side), p(0.05, 0.22, 0.08 * side)], 0.012, bend=0.08, sides=6, material="cable", props=P))
-    collect(acc, pipe("int.pilot.hose", [p(0.38, 0.27, 0.08), p(0.3, 0.33, 0.2), p(0.12, 0.25, 0.27), pan(0.1, 0.02, 0.27)], 0.016, bend=0.06, sides=10, material="cable", props=P))
+    # —— ⑧ 驾驶员「銜燭」软态：开源人体基础网格摆姿 + 服装（blender/zl/pilot.py）——
+    t8 = math.radians(8)
+    seat = {
+        "srp": np.array(at(s0, 0, z0)), "back": BACK, "back_n": 0.07, "pan_h": 0.06, "knee": math.radians(112),
+        "feet": {"L": np.array(at(5.32, 0.14, Z_TIP + 0.2)), "R": np.array(at(5.32, -0.14, Z_TIP + 0.2))},
+        "foot_dir": np.array([0.75, 0.0, 0.66]),
+        "grips": {s_: np.array(GRIPS[s_]) for s_ in "LR"},
+        "hand_dir": {"R": np.array([0.92, 0.18, -0.3]), "L": np.array([0.92, -0.18, -0.25])},
+        "knuckles": {"R": np.array([0.0, 0.0, -1.0]), "L": np.array([0.0, 0.0, -1.0])},
+        "palm": {"R": np.array([0.0, 1.0, 0.0]), "L": np.array([0.0, -1.0, 0.0])},
+        "seat_side": {"L": pan(0.12, 0.08, 0.235), "R": pan(0.12, 0.08, -0.235)},
+    }
+    parts, J = pilot.build(seat, P)
+    collect(acc, parts)
+    # 脚蹬：贴在两只脚掌下（踏板随人调），踏板臂落到脚蹬斜板上
+    f = Vector(seat["foot_dir"]).normalized()
+    n = Vector((f.z, 0.0, -f.x))  # 脚底朝向（前下）
+    for side in "LR":
+        ank = J[f"ankle.{side}"]
+        c = ank + f * 0.08 + n * 0.085
+        tag = side.lower()
+        collect(acc, hull(f"int.cp.pedal.{tag}", [c + f * a + Y * b + n * d for a in (-0.11, 0.11) for b in (-0.05, 0.05) for d in (0.0, 0.022)], "metal", P, bevel=0.004))
+        collect(acc, beam(f"int.cp.pedal.{tag}.arm", c + n * 0.02, Vector((c.x, c.y, ZF + 0.01)), 0.03, 0.025, X, kind="box", material="metal", props=P))
+    head = J["head"]
+    # 头盔顶离座舱盖内表面（玻璃厚 1.2 cm）
+    from .nose import CANOPY
+
+    top = J["helmet_top"]
+    st = S(top)
+    for a_, b_ in zip(CANOPY, CANOPY[1:]):
+        if a_[0] <= st <= b_[0]:
+            zc = Z_TIP + lerp(a_[1], b_[1], (st - a_[0]) / (b_[0] - a_[0])) - 0.012
+            print(f"  头盔顶 s {st:.2f} z {top.z:.3f} · 离座舱盖内表面 {100 * (zc - top.z):.1f} cm")
     return head, p(0.87, -0.02)
 
 
@@ -613,12 +598,23 @@ def build():
     rcs_bay(acc)
     avionics_fwd(acc)
     avionics_aft(acc)
-    pipe_runs(acc)
     gear_bay(acc)
     head, headbox = cockpit(acc)
     aft_bay(acc)
+    # K1 零件表里几何母版还没有的件（管线按表的路径重铺，原来的近似管排已删）
+    n = k1table.build(acc, sys.modules[__name__])
+    print(f"K1 零件表补建 {n} 件")
+    # 小件（螺栓、接头、卡箍、铭牌……）的线一律降为次级线：三级线宽读得出来
+    for o, _ in acc:
+        if o.get("lineLevel") == "structure":
+            d = o.dimensions
+            if max(d) < 0.05:
+                o["lineLevel"] = "secondary"
     # 只要 S_END 以内的（K1 画得比机头段长）
-    acc = [(o, l) for o, l in acc if min(XN - v.co.x for v in o.data.vertices) < S_END - 0.01]
+    empty = [o.name for o, _ in acc if not len(o.data.vertices)]
+    if empty:
+        print("  空对象（丢掉）:", " ".join(empty))
+    acc = [(o, l) for o, l in acc if len(o.data.vertices) and min(XN - v.co.x for v in o.data.vertices) < S_END - 0.01]
     callouts = [
         {"n": 2, "label": "传感器组（光电 / 红外 / 射频 / 激光雷达）", "at": list(k1(213, 447))},
         {"n": 3, "label": "机头姿控推进器组", "at": list(k1(396, 433.5, 0.06))},

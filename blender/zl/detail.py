@@ -206,8 +206,8 @@ def paint(P, N, A, meta):
             for dj in (-1, 0, 1):
                 vc = off + (j0 + dj) * H
                 du, dv = np.abs(s - sc), np.abs(vb - vc)
-                n = np.maximum(dv / (H / 2), du / (W / 2) + dv / H)  # 六边形“范数”：边上为 1
-                best = np.where(inz, np.minimum(best, n), best)
+                hn = np.maximum(dv / (H / 2), du / (W / 2) + dv / H)  # 六边形“范数”：边上为 1
+                best = np.where(inz, np.minimum(best, hn), best)
     edge = np.clip((best - 0.88) / 0.12, 0, 1)
     gap = np.clip(1 - zone_edge / 0.008, 0, 1)  # 分区缝 1.5 cm
     r = np.where(belly, r - 0.12 * edge - 0.2 * gap, r)

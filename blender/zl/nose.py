@@ -380,7 +380,7 @@ def canopy():
     front = [r for r in CANOPY if r[0] < BOW_S] + [interp(BOW_S - 0.025)]
     rear = [interp(BOW_S + 0.025)] + [r for r in CANOPY if r[0] > BOW_S]
     for name, rows in (("canopy.glass.front", front), ("canopy.glass.rear", rear)):
-        o, l = hull(name, pts(rows), "glass", {"skin": "glass", "glass": True, "cut": True}, bevel=0.004)
+        o, l = hull(name, pts(rows), "glass", {"skin": "glass", "glass": True, "cut": True, "section": "shell"}, bevel=0.004)
         EDGES[o.name] = l
         out.append(o)
     # 框：弓形框（有厚度，高出玻璃 1 cm）、两侧窗槛（沿底边的厚条）、前风挡框

@@ -64,9 +64,14 @@ for v, t in (("c2-tip-top", "俯视"), ("c2-tip-side", "侧视"), ("c2-tip-front
     rows.append(stack([labelled(load(f"REFERENCE-{v}.png"), f"C2 {t}"), labelled(load(f"AFTER-{v}-A.png"), "A"), labelled(load(f"OVERLAY-{v}-A.png"), "50% 叠图")], vertical=False))
 save(stack(rows), "AB-c2-tip.png")
 # 1× / 4× / 12× 特写
-tags = [("az030-1x", "1× 全景"), ("az030-4x-canopy", "4× 座舱与眉骨"), ("az060-4x-rcs", "4× 姿控喷口"), ("az030-12x-eye", "12× 光窗眼珠"), ("az060-12x-roller", "12× 滑轨滚轮座"), ("az090-4x-cockpit-cut", "4× 剖视座舱")]
+tags = [("az030-1x", "1× 全景"), ("az030-4x-canopy", "4× 座舱与眉骨"), ("az060-4x-rcs", "4× 姿控喷口"), ("az030-12x-eye", "12× 光窗眼珠"), ("az060-12x-roller", "12× 滑轨滚轮座"), ("az090-4x-cockpit-cut", "4× 剖视座舱"), ("az100-7x-pilot", "7× 驾驶员（銜燭软态）")]
 for tag, t in tags:
     save(stack([labelled(load(f"CLOSE-A-lines-{tag}.png"), f"A · {t}", 1200), labelled(load(f"CLOSE-B-lines-{tag}.png"), f"B · {t}", 1200)], vertical=False), f"CLOSE-{tag}.png")
+# A/B 3/4 斜视并排（外形通电 / 剖视）
+rows = []
+for tag, t in (("az030-ext", "3/4 斜视 · 外形（通电）"), ("az060-cut", "3/4 斜视 · 剖视")):
+    rows.append(stack([labelled(load(f"OBLIQUE-A-lines-{tag}.png"), f"A · {t}", 1200), labelled(load(f"OBLIQUE-B-lines-{tag}.png"), f"B · {t}", 1200)], vertical=False))
+save(stack(rows), "AB-oblique.png")
 # 目标帧与缩略图
 rows = []
 for a, b, t in (("TARGET-1-parked-A-lines-az030.png", "TARGET-1-parked-B-lines-az030.png", "① 停机全景"), ("TARGET-2-nose-A.png", "TARGET-2-nose-B.png", "② 机头特写（电影画质）"), ("TARGET-3-orbit-A-lines-az330.png", "TARGET-3-orbit-B-lines-az330.png", "③ 入轨剪影")):
