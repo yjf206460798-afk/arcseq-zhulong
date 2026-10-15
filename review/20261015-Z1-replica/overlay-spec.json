@@ -1,0 +1,293 @@
+[
+ {
+  "name": "c2-top-B",
+  "refName": "c2-top",
+  "ref": "refs/concept/C2_\u5927\u6c14\u5f62\u6001\u4e09\u89c6\u56fe_\u5b9a\u7a3f.png",
+  "crop": [
+   60,
+   280,
+   640,
+   500
+  ],
+  "heading": 90,
+  "elevation": 90,
+  "mode": "lines",
+  "scale": 3,
+  "zoom": 3,
+  "page": "dist/metal.html",
+  "anchors": [
+   [
+    [
+     9.5,
+     0,
+     1.65
+    ],
+    [
+     89,
+     390.5
+    ]
+   ],
+   [
+    [
+     1.9,
+     0,
+     1.65
+    ],
+    [
+     590.6,
+     390.5
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "c2-side-B",
+  "refName": "c2-side",
+  "ref": "refs/concept/C2_\u5927\u6c14\u5f62\u6001\u4e09\u89c6\u56fe_\u5b9a\u7a3f.png",
+  "crop": [
+   570,
+   840,
+   960,
+   985
+  ],
+  "heading": 90,
+  "elevation": 0,
+  "mode": "lines",
+  "scale": 2,
+  "zoom": 4,
+  "page": "dist/metal.html",
+  "anchors": [
+   [
+    [
+     9.5,
+     0,
+     1.65
+    ],
+    [
+     590,
+     929.5
+    ]
+   ],
+   [
+    [
+     1.9,
+     0,
+     1.65
+    ],
+    [
+     912.4,
+     929.5
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "c2-front-B",
+  "refName": "c2-front",
+  "ref": "refs/concept/C2_\u5927\u6c14\u5f62\u6001\u4e09\u89c6\u56fe_\u5b9a\u7a3f.png",
+  "crop": [
+   180,
+   830,
+   420,
+   985
+  ],
+  "heading": 0,
+  "elevation": 0,
+  "mode": "lines",
+  "scale": 2,
+  "zoom": 4,
+  "page": "dist/metal.html",
+  "anchors": [
+   [
+    [
+     9.5,
+     0,
+     1.65
+    ],
+    [
+     297,
+     923.7
+    ]
+   ],
+   [
+    [
+     9.5,
+     1,
+     1.65
+    ],
+    [
+     343.67,
+     923.7
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "c2-tip-top-B",
+  "refName": "c2-tip-top",
+  "ref": "refs/concept/C2_\u5927\u6c14\u5f62\u6001\u4e09\u89c6\u56fe_\u5b9a\u7a3f.png",
+  "crop": [
+   80,
+   365,
+   190,
+   416
+  ],
+  "heading": 90,
+  "elevation": 90,
+  "mode": "lines",
+  "scale": 2,
+  "zoom": 8,
+  "page": "dist/metal.html",
+  "anchors": [
+   [
+    [
+     9.5,
+     0,
+     1.65
+    ],
+    [
+     89,
+     390.5
+    ]
+   ],
+   [
+    [
+     8.5,
+     0,
+     1.65
+    ],
+    [
+     155,
+     390.5
+    ]
+   ]
+  ],
+  "after": "__arcseq.focus([9.0,0,1.66],7)"
+ },
+ {
+  "name": "c2-tip-side-B",
+  "refName": "c2-tip-side",
+  "ref": "refs/concept/C2_\u5927\u6c14\u5f62\u6001\u4e09\u89c6\u56fe_\u5b9a\u7a3f.png",
+  "crop": [
+   582,
+   905,
+   690,
+   952
+  ],
+  "heading": 90,
+  "elevation": 0,
+  "mode": "lines",
+  "scale": 2,
+  "zoom": 8,
+  "page": "dist/metal.html",
+  "anchors": [
+   [
+    [
+     9.5,
+     0,
+     1.65
+    ],
+    [
+     590,
+     929.5
+    ]
+   ],
+   [
+    [
+     8.5,
+     0,
+     1.65
+    ],
+    [
+     632.42,
+     929.5
+    ]
+   ]
+  ],
+  "after": "__arcseq.focus([9.0,0,1.66],7)"
+ },
+ {
+  "name": "c2-tip-front-B",
+  "refName": "c2-tip-front",
+  "ref": "refs/concept/C2_\u5927\u6c14\u5f62\u6001\u4e09\u89c6\u56fe_\u5b9a\u7a3f.png",
+  "crop": [
+   262,
+   895,
+   332,
+   955
+  ],
+  "heading": 0,
+  "elevation": 0,
+  "mode": "lines",
+  "scale": 2,
+  "zoom": 8,
+  "page": "dist/metal.html",
+  "anchors": [
+   [
+    [
+     9.5,
+     0,
+     1.65
+    ],
+    [
+     297,
+     923.7
+    ]
+   ],
+   [
+    [
+     9.5,
+     0.3,
+     1.65
+    ],
+    [
+     311,
+     923.7
+    ]
+   ]
+  ],
+  "after": "__arcseq.focus([9.0,0,1.66],7)"
+ },
+ {
+  "name": "k1-cut-B",
+  "refName": "k1-cut",
+  "ref": "refs/layout/K1_\u9a7e\u9a76\u8231\u4fa7\u5256.png",
+  "crop": [
+   40,
+   170,
+   1720,
+   650
+  ],
+  "heading": 90,
+  "elevation": 0,
+  "mode": "lines",
+  "scale": 3,
+  "zoom": 1,
+  "page": "dist/metal.html",
+  "anchors": [
+   [
+    [
+     9.17,
+     0,
+     1.66
+    ],
+    [
+     97,
+     449
+    ]
+   ],
+   [
+    [
+     2.17,
+     0,
+     1.66
+    ],
+    [
+     1637,
+     449
+    ]
+   ]
+  ],
+  "pre": "__arcseq.cutaway(true)"
+ }
+]

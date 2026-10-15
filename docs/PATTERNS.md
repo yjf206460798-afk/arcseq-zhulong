@@ -20,27 +20,28 @@
 ## 几何母版：Blender 建模脚本（Z1 定）
 
 - 适用于：一切机体零件。母版是脚本：`blender/build.py` + `blender/zl/*.py`，运行一次从零生成全部模型；`assets/zhulong.glb`、`.json`、`zhulong-skin.png` 是产物（提交进仓库，网页构建不需要 Blender），`.blend` 只在 `--blend` 时另存到 `dist/`。
-- 命令：`.venv/bin/python blender/build.py`（建模 + 烘焙 + 导出，约 1 分钟）；`--fast` 只看形（写到 `dist/fast/`，不覆盖 assets）；`--render-only out.png [--shot hero|nose] [--power 0|1]` 出 Cycles 渲染（不改 assets）。装法见 `docs/BLENDER.md`。
+- 命令：`.venv/bin/python blender/build.py`（建模 + 烘焙 + 导出，约 3 分钟：建模 4 s、烘焙 180 s）；`--fast` 只看形（约 4 s，写到 `dist/fast/`，不覆盖 assets；预览页 `node src/figure/build.mjs --assets=dist/fast --out=dist/fast/index.html`）；`--render-only out.png [--shot hero|nose|cutaway] [--power 0|1]` 出 Cycles 渲染（不改 assets）。装法见 `docs/BLENDER.md`。
+- 模块：`blender/zl/nose.py`（外形）、`interior.py`（剖视内部，对 K1）、`section.py`（剖面带、穿模自检）、`bake.py` / `detail.py`（烘焙与细节贴图）、`render.py`（Cycles）；零件库 `blender/kit/`（见「参数化零件库」）。
 - 步骤：
   1. 坐标与网页相同：米，x 前、y 左、z 上，原点在转台轴心；站位 s 自机头尖向后，`at(s, y, z)`（`zl/util.py`，x = 9.5 − s）。
   2. **命名即接口**：每个零件一个对象，对象名 = 网页零件名；左侧 `.l`，右侧用 `mirror_object` 镜像出 `.r`（自定义属性照抄，记得改 `skin` / `joint`）。
-  3. **自定义属性即元数据**（导出 `export_extras`，网页原样并进零件）：`skin`（线条蒙皮组，同组之间不出接缝线；机身蒙皮一律 `"skin"`）、`joint`、`system`（`"void"` 空腔）、`glass`、`glow: { key, color }`（自发光，见「选择性发光」）、`lineLevel: "secondary"`（细密重复件的线一律降为 L2：鳞片瓦、虹膜片）、`shadow: false`（不进投影）。材质槽名 = 网页材质表键（`hull` / `belly` / `carbon` / `glass` / `interior` / `sensor` / `void`）。
+  3. **自定义属性即元数据**（导出 `export_extras`，网页原样并进零件）：`skin`（线条蒙皮组，同组之间不出接缝线；机身蒙皮一律 `"skin"`）、`joint`、`system`（`"void"` 空腔）、`glass`、`glow: { key, color }`（自发光，见「选择性发光」）、`lineLevel: "secondary"`（细密重复件的线一律降为 L2：鳞片瓦、虹膜片）/ `"structure"`（内部件封顶 L1）、`shadow: false`（不进投影）、`module: "interior"`（按需模块）、`show`（`"cutaway"` / `"!cutaway"`）、`cut`（剖视时被剖切面切开）、`curved`（曲面件，网页按曲面轮廓取线）。材质槽名 = 网页材质表键（`hull` / `belly` / `carbon` / `glass` / `interior` / `sensor` / `void`）。
   4. 两个零件要“长在一起”、交线要成为真实折边的（眉骨、背部整流并进机身），用 `boolean(target, cutter)`（EXACT 并）；要单独成件、交界出一级结构线的（座舱盖、滑轨、鸭翼），单独成对象、底部嵌进机身 1～3 cm。
   5. 分割线、棱线、地标、遮线区写进 `meta`（→ `assets/zhulong.json`）：`seams` 用 `surface_point(s, facet, t, lift)` 在切面上取点、抬 2 mm、带法线；`level` 为 `"secondary"`（L2）/ `"structure"`（L1）/ `"accent"`（朱红棱线）。
   6. 改完跑 `node src/figure/build.mjs`，再截图（`scripts/z1-review.sh` 里有现成的命令）。
 - 验收：四方位线稿里新零件不悬空、不穿插；4× 特写里交线清楚；`build.py` 输出的三角形数不超过预算（`docs/BLENDER.md`）。
 - 常见错误：薄片零件离蒙皮只有几毫米、又在 20 cm 以内被线的深度让出量透出来（加 `masks`，见眼珠）；忘了镜像件的 `skin`（左右两件同名蒙皮组，中间的接缝线消失）；`--fast` 以为会更新 assets（不会）。
 
-## 切面机身：位似放样（Z1 定）
+## 切面机身：单顶点棱锥（Z1 定，复刻样板按 C2 实测改）
 
 - 适用于：烛龙机身、以及之后一切“大块精确切面”的蒙皮。
-- 参考实现：`blender/zl/nose.py` 的 `REAR` / `FORE_APEX` / `NEEDLE` / `ring` / `section` / `body`；代码凸体版 `src/geometry/nose.mjs` 同名函数。
+- 参考实现：`blender/zl/nose.py` 的 `K` / `APEX_S` / `ring` / `surface` / `facet_normal` / `body`。
 - 步骤：
-  1. 截面只用几条棱线点（R0 背脊、R1 肩线、R2 棱线、R3 腹缘，腹底平面 R3–R3′）。
-  2. 每一段（例：针段 s 0.16～1.1、前机身 s 1.1～7.2）给**后端截面 + 一个顶点**，段内任一站的截面 = 后端截面绕顶点按 (s − s顶点)/(s后 − s顶点) 缩放。这样同一段里所有棱线都是汇向顶点的直线，**每张切面严格是平面**——平面着色不出斜纹，五档明暗在一张切面上是一整块。
-  3. 段与段在接缝站位换顶点，形成折线；折角 < 22° 时不出线，只有明暗的一档变化（“刀刃”的层次）。
-  4. 切面上的细分（站位每 0.1 m、横向 3～4 格）只为顶点 AO 有足够的顶点，不改形状。
-- 验收：体积模式下同一切面是一块均匀的色；切面交线笔直。
+  1. 截面只用几条棱：R0 背脊、R1 朱红脊线、R2 棱线（最宽）、R3 腹缘，腹底平面 R3–R3′；从背脊顺时针依次是屋面、外上切面（C2 里那条暗带）、下切面（鳞片瓦）、平腹底。
+  2. **一段只有一个顶点**：每条棱都是汇向顶点（机头前 0.35 m）的直线，站位 s 处 R = (a·t, Z_TIP + b·t)，t = s − APEX_S；a、b 直接从 C2 三视图量（俯视 66 px/m、侧视 42.4 px/m、前视 46.7 px/m）。这样每张切面严格是平面——平面着色不出斜纹，五档明暗在一张切面上是一整块。
+  3. 需要折的地方（背脊在 s 6.4 之后放平）换一段，接缝处折角 < 22° 不出线，只是明暗一档的变化。
+  4. 切面上的细分（站位每 0.1 m、横向 2～4 格）只为顶点 AO 有足够的顶点，不改形状。
+- 验收：叠图（见「复刻标准」）里外轮廓与 C2 偏差 ≤ 2 像素；体积模式下同一切面是一块均匀的色。
 - 常见错误：两站截面各自给值、直线插值（相邻两条棱线不共面，切面变成扭曲面，平面着色出三角斜纹）。
 
 ## 画面链：多重采样、超采样、选择性发光（Z1 定）`[kit]`
@@ -59,15 +60,18 @@
 - 为什么：细于 1 像素的线（L1 0.5 px、L2 0.42 px）落在两个像素之间时，两像素覆盖率之和恒等于线宽，转动时亮度不随亚像素位置起伏。FIG.01 的近似式在 0.42 px 线上约 ±15% 起伏。
 - 验收：`node src/figure/aa.mjs <目录>`：0.1° 一步慢转 8 帧、与 4× 超采样参照逐像素比（只算边缘与线条像素）。Z1 实测：FIG.01 式 2.85 / 闪烁 2.01 → 精确覆盖 0.87 / 0.94 → 加 2× 超采样 0.35 / 0.45（`AA.txt`）。
 
-## 顶点 AO 与烘焙细节贴图（Z1 定）
+## 顶点 AO 与烘焙细节贴图（Z1 定，复刻样板扩充）
 
-- 参考实现：`blender/zl/bake.py`（`vertex_ao`、`detail_texture`）、`blender/zl/detail.py`（`paint`、`rivets_along`、`decal`、`dilate`）；网页 `10-materials.js` 的 `aAO`、`uDetail`。
+- 参考实现：`blender/zl/bake.py`（`vertex_ao(objs, hide=)`、`detail_texture(objs, meta, assets, hide=)`）、`blender/zl/detail.py`（`paint`、`segment_field`、`rivets_along`、`value_noise`、`decal`、`dilate`）；网页 `10-materials.js` 的 `aAO`、`uDetail`、`uDetailMid`、`uPbrMap`。
 - 做法：
-  1. 顶点 AO：Cycles 烘到每个零件的颜色属性 `ao`（导出为 COLOR_0），只看 45 cm 以内（缝隙、内角）。网页里只压暗、不改明暗档（`FX.ao` 为强度）。空腔薄片（`system: "void"`）烘焙时藏起来，不当遮挡物。
-  2. 细节贴图（机身蒙皮一张 2048²）：按角度展 UV → 烘每个纹素的世界坐标与法线 → numpy 程序生成：**r** 刻线压暗（铆钉只沿已有接缝两侧各一行；鳞片缝只在棱线以下）、**g** 涂装（机号、名字、警示三角，PIL 画字再按切面平面投影，右侧读向反过来）、**b** 贴图 AO。边缘外扩 6 圈防漏色。
-  3. 细节疏密：铆钉、涂装只在已有结构旁；大面积蒙皮保持安静。新增涂装改 `detail.py` 的 `paint`，不手画贴图。
-- 验收：`QA-ao-off/on`（体积模式 3×：眉骨下、座舱盖底边、鸭翼根有一层薄暗）；`QA-detail-off/on`（4×：铆钉行、口盖、机号可读，1× 不抢眼）。
-- 常见错误：浮点烘焙图的 alpha 判断有效纹素（未烘到的也是 1，要用法线长度）；贴着蒙皮的薄片参与 AO（周围一圈黑斑）。
+  1. 顶点 AO：Cycles 烘到每个零件的颜色属性 `ao`（导出为 COLOR_0），只看 45 cm 以内。外形与剖视内部分两次烘，互相 `hide`（内部件不给蒙皮烘出暗斑，蒙皮也不给内部压暗——剖视时近侧蒙皮是切掉的）。空腔薄片与贴面件（`aoOccluder: false`）不当遮挡物。
+  2. 细节贴图 `zhulong-skin.png`（机身蒙皮 2048²，按角度展 UV → 烘每个纹素的世界坐标、法线、AO → numpy 程序生成）：
+     - **r 明度乘子，0.5 = 不变**（`mid: true`，网页按 `2·r` 乘）：刻线（分割线两侧 4 mm 浅槽，压暗约 25%）、铆钉（沿分割线两侧各一行、35 mm 一颗）、腹底鳞片缝（按 `ZONES` 分区，区间留 1.5 cm 分区缝）；**面板错拼 ±3%**（按 `meta.panel_cuts` 的环缝站位 × 切面 × 左右编号哈希）；**棱边磨损**（母版硬边 1.2 cm 内、值噪声断续、只提亮 ≤ 3%）。
+     - **g 涂装**：机号「02」、「燭龍 ZHULONG」（铭文一律繁体，DESIGN 8.5）、姿控喷口警示三角。**b** 贴图 AO。
+  3. B 画法另一张 `zhulong-skin-pbr.png`：rgb 物体空间法线（刻线成槽、铆钉成小圆顶，用到线段 / 点的距离场求离线方向）、a 粗糙度（面板 ±0.05、刻线更糙、磨损更光）。只进 B 版页面。
+  4. 细节疏密：铆钉、涂装只在已有结构旁；安静区靠 ±3% 错拼与 L2 细线，不留空白也不撒花。新增涂装改 `detail.py` 的 `paint`，不手画贴图。
+- 验收：`CLOSE-*-4x-*`（铆钉行、口盖、机号可读）、1× 不抢眼；`skin.png` 的 r 通道均值 ≈ 128。
+- 常见错误：浮点烘焙图的 alpha 判断有效纹素（要用法线长度）；贴着蒙皮的薄片参与 AO；r 通道按旧的“只压暗”编码（≤ 1）写，面板就只能变暗。
 
 ## 朱红棱线（accent 线，Z1 定）
 
@@ -87,10 +91,55 @@
 - 用法：录制脚本先 `cinema({...})`，然后每帧 `cinemaFrame()`；截图用 drive 的 `shot`（不要再调 `view()`，它会按网页版重画）。
 - 常见错误：景深范围太窄（机头一米外全糊，朱红线也糊掉）——机头特写 range 取 1.5～2.5 m。
 
+## 复刻标准：叠图对位（Z1 复刻样板定）
+
+- 适用于：一切“对 refs 的图一比一复刻”的部位（VISUAL_TARGET「复刻标准」）。外形对 C2 / C3，内部对 refs/layout 的 L0、E1～E4、K1。
+- 参考实现：`scripts/overlay.mjs`（叠图）、`scripts/replica-review.sh`（整轮交审）、`scripts/replica-sheets.py`（拼图）；页面 `__arcseq.project(point)`（模型点 → 舞台像素）。
+- 步骤：
+  1. **先量图**：用带网格的放大裁图读坐标（`review/scratch` 里临时生成，不进仓库），写进几何母版的注释或常量表（例：`interior.py` 的 `K1_TOP` / `K1_BOT`、`nose.py` 的 `K`、`EYE`）。比例尺不可信的图（refs/layout/README）只取相对关系：以一个可靠地标（K1 用光窗眼心）对齐、按全长 19 m 等 DESIGN 尺寸定比例。
+  2. **内部图 → 我们的截面**：图里的机身外形与 C2 不完全一样时，内部件的竖向位置按“图里上下蒙皮之间的比例”放进我们的截面（`k1()`），零件本身尺寸按比例量、不拉伸；图里画错的部分（README 的“已知错误”）按几何母版走，并写进 DESIGN 8.x。人按真人尺寸做（驾驶员、座椅），只取图里的位置。
+  3. **叠图**：`overlay.mjs` 的 spec 每项给参考图、裁剪框、机位（heading / elevation）、两个锚点（模型点 ↔ 参考图像素）；工具按两点求相似变换，输出 `REFERENCE-` / `AFTER-` / `OVERLAY-`（50%）。正交视图：俯视 heading 90 / elevation 90，侧视 90 / 0，前视 0 / 0；剖视先 `__arcseq.cutaway(true)`。局部放大用 `after: "__arcseq.focus(...)"` 而不是加大分辨率（软件 GL 下 6× 分辨率极慢）。
+  4. **逐条列不吻合处**，每条标“待改”或“按 DESIGN 取舍有意不同”，写进 SUMMARY。
+  5. **数量也要对**：图里看得出的每个零件（箱体、管线、接头、作动筒、紧固件排、口盖）在模型里都有对应物；剖视里看得到的一面（+y）背后只做背景板（远侧舱壁），近侧不做墙。
+  6. **穿模自检**：`build.py` 打印「穿出蒙皮」清单（`section.containment`，内部件每个顶点都要在外形截面里或座舱盖下），交审前必须为 0。
+- 验收：`AB-*.png`（参考图 / A / B 并排）、`OVERLAY-*.png`；SUMMARY 的不吻合清单。
+- 常见错误：用参考图的比例尺换算绝对尺寸；把整张参考图的外形当成“这一段”的外形（C2 前视是整机，机头段的截面被后面的机翼、进气口挡住）；剖视里近侧的箱体、墙挡住内部。
+
+## 参数化零件库 v1（Z1 复刻样板定）`[kit]`
+
+- 参考实现：`blender/kit/parts.py`（全部进 `arcseq-kit`）、`blender/kit/finish.py`。每个函数在世界坐标里建一个（或一组）对象，返回 `(对象, 线数据)` 或其列表；`interior.py` 的 `collect()` 统一收。
+- 清单：`pipe`（折线管，拐角按弯曲半径倒圆）、`cylinder`、`hull`（点集凸包）、`box`（设备箱：内凹面板 / `split` 分门、把手、插头、`label` 铭牌、`corner_bolts`、`grille` 格栅）、`connector`（法兰 + 六角螺母）、`actuator`（缸筒 + 活塞杆 + 两端耳环，`ext` 伸出量）、`clamp`、`frame`（沿截面内缩的舱壁环）、`merge`（同材质小件合成一个对象）、`bolts`（一排六角螺栓头）、`beam`（工字 / 槽 / 角 / 方管型材，可带螺栓排）、`lathe`（回转体：罐、轮胎、肢体）、`ellipsoid`、`tank`（椭球封头 + 箍带）、`valve`（球阀 + 法兰 + 执行器）、`pump`（蜗壳 + 带筋电机 + 进出口）、`bracket`（L 角码 + 螺栓）。
+- 规则：成排的小件（螺栓、卡箍）用 `merge` 合成一个对象；`lineLevel` 用 `"structure"`（内部件线条封顶到 L1）或 `"secondary"`（细密件到 L2）；材质名必须在 build.mjs 的材质表里（新材质同时加 `PALETTE` 与 `PBR` 两处）。
+- `[Codex]` 照这个库与 `interior.py` 的写法铺 L0 / E1～E4 的其余舱段。
+
+## 硬边、倒角与线（Z1 复刻样板定）`[kit]`
+
+- 参考实现：`blender/kit/finish.py` 的 `hard_edges` / `finish`；网页 `30-lines.js` 里带 `part.edges` 的分支。
+- 做法：所有零件收尾都调 `finish(obj, bevel=1.5～4 cm（小件按尺寸）, segments=2)`：先记下折角 > 30° 的硬边，再做两段倒角；线只从这些母版硬边来，位置挪到倒角圆弧中点（离原棱 `w·(1 − sin(α/2)) / cos(α/2)`），两侧法线取原面法线——一条棱只出一条线，不出双线。曲面件（`curved`）不记折边，网页按曲面轮廓取线。
+- 线的深度让出量随取景缩放（`30-lines.js`：`bias / zoom`，下限 1.5 mm）：特写里贴着蒙皮的零件不再透线。
+- 多材质对象导出成几个图元时，硬边只挂第一个图元（`meshpack.mjs`），否则线画三遍、显得过亮。
+
+## 剖视模式与按需模块（Z1 复刻样板定）`[kit]`
+
+- 参考实现：`95-cutaway.js`（`setCutaway`、`window.__arcseqModule`、标注层）、`10-materials.js` 的裁剪与背面内壁色、`30-lines.js` 的 `uCut`；几何母版 `section.py`（剖面带、穿模自检）、`build.py`（`cut` / `show: "!cutaway"` 的自动判定）。
+- 规则：剖切面是模型坐标 y = 0，从 +y 一侧看（与 K1 同）。外部件按位置自动分：整件在一侧的 → `show: "!cutaway"`（剖视时不画：近侧的挡视线，远侧的在蒙皮外、线会透过来）；跨中线的 → `cut`（被切开，背面画暗内壁）。内部件默认整件显示（K1 里箱体是整的），屏幕墙、地板这类“剖切面上的东西”给 `cut`。内部模块（`zhulong-interior.js`）第一次打开剖视时才加载；剖视时座舱通电（`DATA.cutawayPower`）。编号标注挂在几何母版的 `callouts` 上，随模型转。
+- 验收：`AB-k1-cut.png`、`CLOSE-*-4x-cockpit-cut.png`；剖视下没有外部件的线透进来。
+
+## 画法 B：金属质感（Z1 复刻样板 A/B，待作者定）`[kit]`
+
+- 参考实现：`10-materials.js` 的 `uLook` 分支（`envRadiance` / `envIrradiance` / `camDir`）、build.mjs 的 `PBR` 表与 `--look=metal`、`__arcseq.look({ mode: "metal" | "lines" })`。
+- 做法：同一套材质着色器里多一条分支：基色取色板第 4 档、换到线性再乘增益；工作室环境光是解析的（地暗顶亮的渐变 + 四块柔光箱：左上前主光、顶条、右后轮廓条、前下补光），固定在相机坐标里；粗糙度越大柔光箱越软越暗；菲涅尔用 Schlick；AO（顶点 + 贴图）只压漫反射与一部分镜面；机身蒙皮用烘焙的物体空间法线 + 粗糙度贴图。线条降一级（三级不透明度乘 `DATA.metal.lines` = 0.55 / 0.45 / 0.3）；发光照旧走选择性泛光。
+- 常见错误：把环境光写在世界坐标（转台转一圈高光跟着转、俯视时灯位乱）；B 的贴图进了 A 的页面（白白多 0.5 MB）。
+
+## 网格打包（Z1 复刻样板定）`[kit]`
+
+- 参考实现：`src/figure/engine/meshpack.mjs`（Node）、`05-glb.js` 的 `unpackMesh`（浏览器）。
+- 做法：build.mjs 读 GLB 成零件后重新打包：每个零件按自己的包围盒把坐标量化成 uint16（7.6 m 的件精度约 0.12 mm）、法线 int8、uv uint16、AO uint8、索引 uint16（< 65536 顶点时），母版硬边同样量化；一段 base64 + 一段 JSON 头。页面体积约为直接内联 GLB 的一半。
+
 ## 审图截图（FIG.02 补充）
 
 - 在 FIG.01「审图截图」的基础上：`shots.mjs --elevation <度>`（临时俯仰）；`--pre "__arcseq.focus('<地标>' | [x,y,z], 倍数)"`（特写取景：把模型坐标点放到画面中心，处理了不对称视锥）；`__arcseq.look({ ao, detail, bloom })`（逐项关开对照）；`__arcseq.environment('space')`。
-- Z1 全部交审图由 `sh scripts/z1-review.sh` 一次生成。
+- Z1 look-dev 交审图由 `sh scripts/z1-review.sh` 一次生成；复刻样板由 `sh scripts/replica-review.sh` 一次生成（叠图、A/B 并排、固定机位、1× / 4× / 12× 特写、目标帧与缩略图）。
 
 ## 模板：<做法名称>
 

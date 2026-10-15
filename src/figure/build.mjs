@@ -19,6 +19,8 @@ const VARIANT = option("variant", "glb");
 const ASSETS = join(ROOT, option("assets", "assets"));
 /** --look=metal：B 画法（参考图那种金属质感：工作室环境光 + 烘焙的法线 / 粗糙度贴图，线条降一级）；默认 lines（A：线条 + 五档明暗）。 */
 const LOOK = option("look", "lines");
+/** --stress=N：常驻外形重复 N 份（同一位置），只为实测面数预算（docs/BLENDER.md），不用于发布。 */
+const STRESS = Number(option("stress", 1));
 
 /** 舞台画幅（CSS 宽高比 1000 : 670）与相机俯仰 30°（FIG.01 定，固定审图机位 30°/120°/210°/300°）。 */
 const VIEW = { width: 1000, height: 670 };
@@ -46,10 +48,11 @@ async function geometry() {
     detail[name] = { ...spec, src: `data:image/png;base64,${readFileSync(join(ASSETS, spec.file)).toString("base64")}` };
   }
   // 零件与母版硬边一起打成量化网格包（engine/meshpack.mjs），浏览器端 engine/05-glb.js 解
-  const ext = glbParts(glb);
+  const one = glbParts(glb);
+  const ext = STRESS > 1 ? Array.from({ length: STRESS }, (_, k) => one.map((p) => ({ ...p, name: k ? p.name.replace(/(#\d+)?$/, (m) => `~${k}${m}`) : p.name }))).flat() : one;
   const interiorGlb = join(ASSETS, "zhulong-interior.glb");
   const inner = existsSync(interiorGlb) ? glbParts(interiorGlb) : [];
-  const edgeOf = (name) => M.edges?.[name] ?? null;
+  const edgeOf = (name) => M.edges?.[name.split("~")[0]] ?? null;
   return {
     parts: [],
     fitParts: ext,
@@ -77,8 +80,9 @@ const SHADE = {
  * 唯一底线：转灰度后分区与体积仍读得出（每轮先看灰度）。
  */
 const PALETTE = {
-  body: ["#202326", "#26292c", "#2c3033", "#33373a", "#3b3f42"],
-  belly: ["#181c20", "#1c2025", "#20252a", "#252a30", "#2b3036"],
+  /** 复刻样板复测停机全景：机体对台面明度比 1.39 → 约 1.7（提一档；仍是 A1 那种低反差） */
+  body: ["#272b2e", "#2f3336", "#373b3e", "#3f4447", "#484d50"],
+  belly: ["#1d2126", "#22272c", "#272d32", "#2d3339", "#343a40"],
   carbon: ["#141618", "#17191b", "#1a1c1e", "#1e2022", "#232527"],
   glass: ["#0f1215", "#12161a", "#161b20", "#1b2127", "#232a31"],
   interior: ["#15181a", "#181b1d", "#1b1f21", "#1f2325", "#24282a"],
@@ -101,7 +105,9 @@ const PALETTE = {
   tank: ["#2f3437", "#373d40", "#40474a", "#4a5155", "#555d61"],
   screen: ["#0c1417", "#0f191c", "#121e22", "#162428", "#1a2a2f"],
   seat: ["#1d1f20", "#222425", "#28292b", "#2d2f31", "#333537"],
-  suit: ["#2c2e2a", "#333530", "#3b3d37", "#43453f", "#4c4e47"],
+  suit: ["#28292a", "#2f3031", "#363839", "#3e4042", "#47494b"],
+  /** 剖视背景板（舱壁）：比结构件暗，只当底 */
+  backwall: ["#121517", "#15181a", "#181b1e", "#1b1f22", "#1f2326"],
   helmet: ["#3a3d3e", "#434748", "#4d5152", "#575b5d", "#626768"],
   section: ["#56605f", "#5d6766", "#646e6d", "#6b7574", "#727c7b"],
   /** 铭牌（设备箱上的浅色小牌）、警示件（弹射拉环等，暗琥珀） */
@@ -125,14 +131,14 @@ const MATERIALS = {
   void: { tones: "body", shade: "hull", mouth: true },
   round: { tones: "body", shade: "round" },
 };
-for (const k of ["frame", "metal", "chrome", "rubber", "iris", "vermilion", "stand", "structure", "avionics", "panel", "pipe", "cable", "tank", "screen", "seat", "suit", "helmet", "section", "label", "hazard"]) MATERIALS[k] = { tones: k, shade: ["metal", "chrome", "rubber", "pipe", "cable", "tank", "helmet", "suit"].includes(k) ? "round" : "facet" };
+for (const k of ["frame", "metal", "chrome", "rubber", "iris", "vermilion", "stand", "structure", "avionics", "panel", "pipe", "cable", "tank", "screen", "seat", "suit", "helmet", "section", "label", "hazard", "backwall"]) MATERIALS[k] = { tones: k, shade: ["metal", "chrome", "rubber", "pipe", "cable", "tank", "helmet", "suit"].includes(k) ? "round" : "facet" };
 /** B 画法的材质参数：[金属度, 粗糙度, 基色增益]（基色取色板第 4 档，换到线性空间再乘增益）。 */
 const PBR = {
-  hull: [0.55, 0.38, 4.5], belly: [0.4, 0.5, 4.0], carbon: [0.2, 0.35, 2.4], glass: [0.0, 0.05, 1.0], interior: [0.3, 0.6, 2.6], sensor: [0.0, 0.08, 1.6],
-  void: [0.2, 0.6, 1.0], round: [0.5, 0.45, 2.6], frame: [0.7, 0.35, 2.6], metal: [0.9, 0.3, 2.6], chrome: [1.0, 0.12, 2.6], rubber: [0.0, 0.85, 1.6],
-  iris: [0.6, 0.35, 2.6], vermilion: [0.2, 0.4, 1.7], stand: [0.5, 0.5, 2.0], structure: [0.75, 0.38, 2.4], avionics: [0.45, 0.45, 2.5], panel: [0.4, 0.5, 2.4],
-  pipe: [0.85, 0.3, 2.4], cable: [0.1, 0.7, 2.0], tank: [0.85, 0.28, 2.3], screen: [0.0, 0.1, 1.5], seat: [0.2, 0.7, 2.4], suit: [0.15, 0.65, 2.5],
-  helmet: [0.4, 0.25, 2.4], section: [0.6, 0.4, 1.6], label: [0.1, 0.5, 2.0], hazard: [0.2, 0.5, 2.2],
+  hull: [0.55, 0.38, 4.5], belly: [0.4, 0.5, 4.0], carbon: [0.2, 0.35, 2.4], glass: [0.0, 0.05, 1.0], interior: [0.3, 0.55, 4.0], sensor: [0.0, 0.08, 1.6],
+  void: [0.2, 0.6, 1.0], round: [0.5, 0.45, 3.0], frame: [0.7, 0.35, 3.2], metal: [0.85, 0.3, 4.5], chrome: [1.0, 0.12, 3.5], rubber: [0.0, 0.8, 2.2],
+  iris: [0.6, 0.35, 3.0], vermilion: [0.2, 0.4, 1.7], stand: [0.5, 0.5, 2.0], structure: [0.75, 0.36, 5.0], avionics: [0.45, 0.42, 6.0], panel: [0.4, 0.45, 5.0],
+  pipe: [0.85, 0.3, 5.0], cable: [0.1, 0.65, 3.0], tank: [0.85, 0.28, 4.5], screen: [0.0, 0.1, 1.5], seat: [0.25, 0.6, 4.5], suit: [0.15, 0.6, 5.0],
+  helmet: [0.4, 0.25, 4.0], section: [0.6, 0.4, 2.0], label: [0.1, 0.5, 3.5], hazard: [0.2, 0.5, 3.0], backwall: [0.3, 0.7, 2.2],
 };
 for (const [k, m] of Object.entries(MATERIALS)) {
   m.pbr = PBR[k] ?? [0.3, 0.5, 2.4];

@@ -12,15 +12,21 @@ from .util import XN
 PALETTE = {
     # 与 src/figure/build.mjs 的 PALETTE 最亮一档对应（sRGB），Cycles 里换成线性：
     # 实际光照下哑光面只有约一半的光照到，按第 5 档给才与网页的明度对得上（机身比台面亮）
-    "hull": "#3b3f42",
-    "belly": "#2b3036",
-    "carbon": "#1e2022",
-    "glass": "#12161a",
-    "interior": "#1f2325",
-    "sensor": "#21170f",
-    "void": "#0c0e10",
-    "deck": "#0b0f11",
+    "hull": "#484d50", "belly": "#343a40", "carbon": "#232527", "glass": "#12161a", "interior": "#24282a", "sensor": "#281c12",
+    "void": "#0c0e10", "deck": "#0b0f11", "frame": "#323538", "metal": "#41464a", "chrome": "#5c646a", "rubber": "#1b1c1e",
+    "iris": "#1f2124", "vermilion": "#8f3224", "stand": "#1c2023", "structure": "#494e51", "avionics": "#46463f", "panel": "#323330",
+    "pipe": "#424c50", "cable": "#272a2b", "tank": "#555d61", "screen": "#1a2a2f", "seat": "#333537", "suit": "#47494b",
+    "helmet": "#626768", "section": "#727c7b", "label": "#737875", "hazard": "#6a4c23", "backwall": "#1f2326",
 }
+# 金属度、粗糙度（与网页 B 画法同一张表，src/figure/build.mjs 的 PBR）
+PBR = {
+    "hull": (0.55, 0.38), "belly": (0.4, 0.5), "carbon": (0.2, 0.35), "glass": (0.0, 0.05), "interior": (0.3, 0.6), "sensor": (0.0, 0.08),
+    "frame": (0.7, 0.35), "metal": (0.9, 0.3), "chrome": (1.0, 0.12), "rubber": (0.0, 0.85), "iris": (0.6, 0.35), "vermilion": (0.2, 0.4),
+    "stand": (0.5, 0.5), "structure": (0.75, 0.38), "avionics": (0.45, 0.45), "panel": (0.4, 0.5), "pipe": (0.85, 0.3), "cable": (0.1, 0.7),
+    "tank": (0.85, 0.28), "screen": (0.0, 0.1), "seat": (0.2, 0.7), "suit": (0.15, 0.65), "helmet": (0.4, 0.25), "section": (0.6, 0.4),
+    "label": (0.1, 0.5), "hazard": (0.2, 0.5), "backwall": (0.3, 0.7),
+}
+GLOW = {"sensor": ("#ffb060", 6.0), "screen": ("#7bdbec", 5.0)}
 
 
 def lin(hex_):
@@ -44,23 +50,29 @@ def setup_materials(objs, skin_png, power=0.0):
         nt.links.new(bsdf.outputs[0], out.inputs[0])
         base = lin(hex_)
         bsdf.inputs["Base Color"].default_value = base
-        bsdf.inputs["Roughness"].default_value = {"glass": 0.06, "carbon": 0.45, "sensor": 0.1}.get(name, 0.62)
-        bsdf.inputs["Metallic"].default_value = {"glass": 0.0, "carbon": 0.3}.get(name, 0.15)
-        if name == "sensor":
-            bsdf.inputs["Emission Color"].default_value = lin("#ffb060")
-            bsdf.inputs["Emission Strength"].default_value = 6.0 * power
+        metal, rough = PBR.get(name, (0.15, 0.62))
+        bsdf.inputs["Roughness"].default_value = rough
+        bsdf.inputs["Metallic"].default_value = metal
+        if name in GLOW:
+            col, k = GLOW[name]
+            bsdf.inputs["Emission Color"].default_value = lin(col)
+            bsdf.inputs["Emission Strength"].default_value = k * power
         if skin and name in ("hull", "belly"):
-            # 细节贴图：r 压暗（刻线、铆钉、鳞片缝），g 涂装（混向浅灰）
+            # 细节贴图：r 是 0.5 中性的明度乘子（×2 后乘到基色上），g 涂装（混向浅灰）
             tex = nt.nodes.new("ShaderNodeTexImage")
             tex.image = skin
             sep = nt.nodes.new("ShaderNodeSeparateColor")
             nt.links.new(tex.outputs["Color"], sep.inputs[0])
+            two = nt.nodes.new("ShaderNodeMath")
+            two.operation = "MULTIPLY"
+            two.inputs[1].default_value = 2.0
+            nt.links.new(sep.outputs["Red"], two.inputs[0])
             mul = nt.nodes.new("ShaderNodeMix")
             mul.data_type = "RGBA"
             mul.blend_type = "MULTIPLY"
-            mul.inputs["Factor"].default_value = 0.55
+            mul.inputs["Factor"].default_value = 1.0
             mul.inputs["A"].default_value = base
-            nt.links.new(sep.outputs["Red"], mul.inputs["B"])
+            nt.links.new(two.outputs[0], mul.inputs["B"])
             paint = nt.nodes.new("ShaderNodeMix")
             paint.data_type = "RGBA"
             nt.links.new(sep.outputs["Green"], paint.inputs["Factor"])
@@ -69,11 +81,36 @@ def setup_materials(objs, skin_png, power=0.0):
             nt.links.new(paint.outputs["Result"], bsdf.inputs["Base Color"])
 
 
-def chine_tube(meta, power):
-    """朱红棱线：沿棱线的一根 3 mm 发光细管（未通电只是暗朱红漆线）。"""
+def cutaway(objs):
+    """剖视（与网页同一剖切面 y = 0，从 +y 一侧看）：整件在一侧的外部件藏起来，跨中线的件（cut）用布尔差切掉 y > 0 一半。"""
+    import bmesh
+
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=1.0)
+    for v in bm.verts:
+        v.co = Vector((v.co.x * 40, (v.co.y + 0.5) * 6, v.co.z * 20))
+    me = bpy.data.meshes.new("cutbox")
+    bm.to_mesh(me)
+    box = bpy.data.objects.new("cutbox", me)
+    bpy.context.scene.collection.objects.link(box)
+    for o in objs:
+        if o.get("show") == "!cutaway":
+            o.hide_render = True
+        elif o.get("cut"):
+            mod = o.modifiers.new("cut", "BOOLEAN")
+            mod.operation = "DIFFERENCE"
+            mod.solver = "EXACT"
+            mod.object = box
+    box.hide_render = True
+
+
+def chine_tube(meta, power, near=True):
+    """朱红棱线：沿棱线的一根 3 mm 发光细管（未通电只是暗朱红漆线）。near=False：剖视时不要近侧（y > 0）那根。"""
     out = []
     for seam in meta["seams"]:
         if seam.get("level") != "accent":
+            continue
+        if not near and seam["points"][0][1] > 0:
             continue
         cu = bpy.data.curves.new("chine", "CURVE")
         cu.dimensions = "3D"
@@ -125,7 +162,13 @@ def camera(meta, az, el, shot):
     cam_data = bpy.data.cameras.new("cam")
     cam = bpy.data.objects.new("cam", cam_data)
     sc.collection.objects.link(cam)
-    if shot == "nose":
+    if shot == "cutaway":
+        aim = Vector((XN - 3.8, 0, 1.75))
+        cam_data.type = "ORTHO"
+        cam_data.ortho_scale = 8.4
+        cam.location = aim + Vector((0, 60, 0))
+        cam_data.clip_end = 200
+    elif shot == "nose":
         aim = Vector(meta["focus"]["nose"]) + Vector((-0.9, 0, 0.05))
         cam_data.type = "PERSP"
         cam_data.lens = 85
@@ -195,7 +238,13 @@ def cycles(objs, meta, path, shot="hero", samples=64, size="1600x1072", power=1.
         col.objects.link(o)
     skin = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "assets", "zhulong-skin.png")
     setup_materials(objs, skin if os.path.exists(skin) else None, power=power)
-    chine_tube(meta, power)
+    if shot == "cutaway":
+        cutaway(objs)
+    else:
+        for o in objs:
+            if o.get("module") == "interior" or o.get("show") == "cutaway":
+                o.hide_render = True
+    chine_tube(meta, power, near=shot != "cutaway")
     stage(meta, env)
     camera(meta, az if shot == "hero" else 35, el if shot == "hero" else 12, shot)
     freestyle()

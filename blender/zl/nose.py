@@ -25,7 +25,7 @@ S_END = 7.6
 S_FLAT = 6.4  # 背脊在此之后放平
 K = {"R0": (0.0, 0.182), "R1": (0.135, 0.065), "R2": (0.150, 0.035), "R3": (0.070, -0.118)}
 EYE = {"s": 0.33, "r": 0.086, "z": 0.01}  # C2 三视图实测：眼心 s≈0.32、半径约 0.09，略高于机头尖线
-CAP_S, CAP_R = 0.255, 0.042  # 虹膜尖盖：长到 s 0.25（眼珠前极稍后），底半径 = 眼珠在该站位的截面半径
+CAP_S, CAP_R = 0.264, 0.055  # 虹膜尖盖：长到 s 0.25（眼珠前极稍后），底半径 = 眼珠在该站位的截面半径
 FRAMES = [0.67, 1.25, 2.05, 3.1, 3.9, 4.75, 6.95]  # 结构框站位（K1 的舱壁）
 EDGES = {}  # 对象名 → 线数据（finish 的输出），build() 写进 meta
 
@@ -159,7 +159,7 @@ def eye_centre():
 def cap_radius(s):
     """虹膜尖盖（六瓣合拢）的母线：s 0 处尖、s CAP_S 处半径 CAP_R、底部切线水平（正切卵形）。"""
     f = min(max(s / CAP_S, 0.0), 1.0)
-    return CAP_R * math.sin(f * math.pi / 2) ** 0.75
+    return CAP_R * math.sin(f * math.pi / 2) ** 0.55
 
 
 def eye():
@@ -245,7 +245,8 @@ def eye():
     out.append(torus("sensor.iris.ring", CAP_S - 0.002, CAP_R + 0.0005, 0.0032, "metal", {"skin": "sensor.iris.ring", "lineLevel": "secondary"}))
     # 多层眼眶：机身前端面上外圈压边环、内圈台阶环，眼珠与眼窝之间一圈橡胶密封圈
     sf = S_FRONT
-    for name, r0, r1, d0, d1 in (("sensor.socket.outer", r * 1.04, r * 1.13, -0.008, 0.004), ("sensor.socket.inner", r * 0.985, r * 1.04, -0.004, 0.012)):
+    # 外圈压边环比机身端面略大（C2 三个视图里眼珠外都有一圈浅色的环），浅金属色
+    for name, r0, r1, d0, d1, mat in (("sensor.socket.outer", r * 1.04, r * 1.32, -0.01, 0.004, "metal"), ("sensor.socket.inner", r * 0.985, r * 1.04, -0.004, 0.012, "carbon")):
         bm = bmesh.new()
         n = 72
         rings_ = []
@@ -256,8 +257,8 @@ def eye():
                 j = (k + 1) % n
                 bm.faces.new((A[k], A[j], B[j], B[k]))
         bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-        o = new_object(name, bm, "carbon", {"skin": name, "lineLevel": "secondary"})
-        EDGES[o.name] = finish(o, bevel=0.0008, angle=45)
+        o = new_object(name, bm, mat, {"skin": name, "lineLevel": "secondary"})
+        EDGES[o.name] = finish(o, bevel=0.0015, angle=45)
         out.append(o)
     seal_r = math.sqrt(r * r - (EYE["s"] - sf + 0.006) ** 2) + 0.002
     out.append(torus("sensor.seal", sf - 0.006, seal_r, 0.0026, "rubber", {"skin": "sensor.seal", "lineLevel": "secondary"}))

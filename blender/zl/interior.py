@@ -22,6 +22,7 @@ from .util import XN, lerp
 
 SKIN = 0.035  # 蒙皮厚（剖面带的宽）
 P = {"module": "interior", "lineLevel": "structure"}
+PC = {**P, "cut": True}  # 剖切面上被切开的内部件（屏幕墙、地板……K1 里近侧一半是剖掉的）
 
 # —— K1 → 机体 ——————————————————————————————————————————————————————
 K1_PX = 220.0
@@ -185,7 +186,7 @@ def structure(acc):
         s0, s1 = ks(x0), ks(x1)
         zb = max(keel(s0), keel(s1)) + 0.04
         y = -min(half_width(s0, zb + 0.01), half_width(s1, zb + 0.01)) + 0.012
-        collect(acc, hull(f"int.bay.wall.{k}", [at(s, y + d, z) for s in (s0 + 0.01, s1 - 0.01) for d in (0, -0.008) for z in (zb, Z_GEAR)], "panel", P, bevel=0.003))
+        collect(acc, hull(f"int.bay.wall.{k}", [at(s, y + d, z) for s in (s0 + 0.01, s1 - 0.01) for d in (0, -0.008) for z in (zb, Z_GEAR)], "backwall", P, bevel=0.003))
         # 板上的交叉斜撑（K1 舱壁上的 X）
         for j, (za, zb_) in enumerate(((zb + 0.02, Z_GEAR - 0.02), (Z_GEAR - 0.02, zb + 0.02))):
             collect(acc, beam(f"int.bay.brace.{k}.{j}", at(s0 + 0.03, y + 0.02, za), at(s1 - 0.03, y + 0.02, zb_), 0.03, 0.02, Y, kind="angle", props=P))
@@ -378,12 +379,12 @@ def cockpit(acc):
     s_b = ks(1090)
     # 地板（s 5.3～7.0）+ 地板下三根横梁 + 脚踏斜板（前壁上沿斜到地板，K1 的斜地板）
     w = 0.8
-    collect(acc, hull("int.cp.floor", [at(s, y, ZF + dz) for s in (5.3, 6.98) for y in (w / 2, -w / 2) for dz in (0, -0.02)], "structure", P, bevel=0.004))
+    collect(acc, hull("int.cp.floor", [at(s, y, ZF + dz) for s in (5.3, 6.98) for y in (w / 2, -w / 2) for dz in (0, -0.02)], "structure", PC, bevel=0.004))
     for k, s in enumerate((5.6, 6.1, 6.6)):
         collect(acc, beam(f"int.cp.floorbeam.{k}", at(s, 0.36, ZF - 0.07), at(s, -0.36, ZF - 0.07), 0.05, 0.1, Z, kind="I", props=P))
     for k, s in enumerate((5.4, 5.9, 6.4, 6.9)):
         collect(acc, beam(f"int.cp.subpost.{k}", at(s, -0.3, Z_GEAR + 0.04), at(s, -0.3, ZF - 0.12), 0.03, 0.03, X, kind="angle", props=P))
-    collect(acc, hull("int.cp.footwell", [at(s, y, z + dz) for s, z in ((s_b + 0.04, Z_TIP + 0.42), (5.34, ZF)) for y in (0.36, -0.36) for dz in (0, -0.02)], "structure", P, bevel=0.004))
+    collect(acc, hull("int.cp.footwell", [at(s, y, z + dz) for s, z in ((s_b + 0.04, Z_TIP + 0.42), (5.34, ZF)) for y in (0.36, -0.36) for dz in (0, -0.02)], "structure", PC, bevel=0.004))
     # 脚蹬（两块踏板，斜板上）
     for side in (1, -1):
         collect(acc, hull(f"int.cp.pedal.{'lr'[side < 0]}", [at(s, 0.13 * side + dy, z + dz) for s, z in ((5.08, Z_TIP + 0.27), (5.2, Z_TIP + 0.16)) for dy in (-0.05, 0.05) for dz in (0.0, 0.025)], "metal", P, bevel=0.004))
@@ -398,12 +399,12 @@ def cockpit(acc):
                 for d, lst in ((0.0, pts_face), (0.012, pts_face), (0.012, pts_bezel), (0.05, pts_bezel)):
                     rr = R + d - tilt
                     lst.append(at(sc - rr * math.cos(a), rr * math.sin(a), z))
-        collect(acc, hull(f"int.cp.display.{k}.case", pts_bezel, "interior", P, bevel=0.004))
+        collect(acc, hull(f"int.cp.display.{k}.case", pts_bezel, "interior", PC, bevel=0.004))
         # 屏面比外框内缩 1.5 cm
         mid = sum(pts_face, Vector()) / len(pts_face)
         face = [mid + (p - mid) * Vector((1.0, 0.86, 0.9)) for p in pts_face]
-        collect(acc, hull(f"int.cp.display.{k}", face, "screen", {**P, "glow": {"key": "cockpit", "color": "#7bdbec"}}, bevel=0.0015))
-    collect(acc, hull("int.cp.coaming", [at(sc - (R + 0.06) * math.cos(a), (R + 0.06) * math.sin(a), z) for a in (math.radians(-48), 0.0, math.radians(48)) for z in (z1, z1 + 0.04)] + [at(sc - (R - 0.06) * math.cos(a), (R - 0.06) * math.sin(a), z1 + 0.035) for a in (math.radians(-40), 0.0, math.radians(40))], "interior", P, bevel=0.008))
+        collect(acc, hull(f"int.cp.display.{k}", face, "screen", {**PC, "glow": {"key": "cockpit", "color": "#7bdbec"}}, bevel=0.0015))
+    collect(acc, hull("int.cp.coaming", [at(sc - (R + 0.06) * math.cos(a), (R + 0.06) * math.sin(a), z) for a in (math.radians(-48), 0.0, math.radians(48)) for z in (z1, z1 + 0.04)] + [at(sc - (R - 0.06) * math.cos(a), (R - 0.06) * math.sin(a), z1 + 0.035) for a in (math.radians(-40), 0.0, math.radians(40))], "interior", PC, bevel=0.008))
     hs = sc - R + 0.08
     collect(acc, box("int.cp.hud.projector", at(hs, 0, z1 + 0.06), (0.12, 0.16, 0.05), material="interior", face="+z", panel=False, handles=False, plugs=0, props=P))
     collect(acc, hull("int.cp.hud", [at(hs + 0.02 + t * 0.06, y, z1 + 0.09 + t * 0.12 + d) for t in (0, 1) for y in (0.075, -0.075) for d in (0, 0.004)], "glass", {**P, "glass": True, "glow": {"key": "cockpit", "color": "#7bdbec"}}, bevel=0.001))
@@ -463,10 +464,16 @@ def seat_and_pilot(acc):
     collect(acc, box("int.seat.headbox", p(0.87, -0.02), (0.11, 0.38, 0.24), rot=_rot_back(), material="seat", face="+y", panel=True, handles=False, plugs=0, props=P, label=True, corner_bolts=True))
     collect(acc, hull("int.seat.headrest", [p(a, n, y) for a in (0.76, 0.95) for n in (0.04, 0.1) for y in (0.11, -0.11)], "seat", P, bevel=0.02))
     for side in (1, -1):
-        collect(acc, beam(f"int.seat.rail.{'lr'[side < 0]}", p(-0.38, -0.13, 0.19 * side), p(0.98, -0.13, 0.19 * side), 0.045, 0.035, Vector((-cb, 0, sb)) * -1, kind="channel", props=P, holes=6))
-    collect(acc, tank("int.seat.catapult", p(-0.3, -0.12), p(0.78, -0.12), 0.042, bands=3, material="metal", props=P))
-    collect(acc, hull("int.seat.armour", [p(a, -0.2, y) for a in (0.2, 0.95) for y in (0.25, -0.25)] + [p(a, -0.23, y) for a in (0.2, 0.95) for y in (0.25, -0.25)], "structure", P, bevel=0.006))
-    collect(acc, hull("int.seat.armour.slot", [p(a, -0.195 + d, y) for a in (0.45, 0.8) for y in (0.06, -0.06) for d in (0.0, 0.004)], "void", {**P, "lineLevel": "secondary"}, bevel=0.0))
+        collect(acc, beam(f"int.seat.rail.{'lr'[side < 0]}", p(-0.38, -0.2, 0.19 * side), p(1.0, -0.2, 0.19 * side), 0.05, 0.04, Vector((-cb, 0, sb)) * -1, kind="channel", props=P, holes=7))
+        # 椅背到导轨的连接耳（上中下三对）
+        for k, a in enumerate((0.1, 0.45, 0.8)):
+            collect(acc, hull(f"int.seat.lug.{k}.{'lr'[side < 0]}", [p(a + da, n, 0.19 * side + dy) for da in (-0.04, 0.04) for n in (-0.06, -0.18) for dy in (-0.012, 0.012)], "metal", P, bevel=0.004))
+    collect(acc, tank("int.seat.catapult", p(-0.3, -0.13), p(0.82, -0.13), 0.045, bands=3, material="metal", props=P))
+    collect(acc, hull("int.seat.armour", [p(a, -0.36, y) for a in (0.15, 1.0) for y in (0.26, -0.26)] + [p(a, -0.4, y) for a in (0.15, 1.0) for y in (0.26, -0.26)], "structure", P, bevel=0.006))
+    collect(acc, hull("int.seat.armour.slot", [p(a, -0.355 + d, y) for a in (0.45, 0.85) for y in (0.06, -0.06) for d in (0.0, 0.004)], "void", {**P, "lineLevel": "secondary"}, bevel=0.0))
+    for side in (1, -1):
+        collect(acc, beam(f"int.seat.armour.strut.{'lr'[side < 0]}", p(0.3, -0.22, 0.2 * side), p(0.3, -0.36, 0.2 * side), 0.03, 0.03, _v(sb, cb), kind="box", props=P))
+        collect(acc, beam(f"int.seat.armour.strut2.{'lr'[side < 0]}", p(0.9, -0.22, 0.2 * side), p(0.9, -0.36, 0.2 * side), 0.03, 0.03, _v(sb, cb), kind="box", props=P))
     # 座椅底架到地板的两根支腿（K1 椅下的斜撑）
     for side in (1, -1):
         collect(acc, beam(f"int.seat.leg.{'lr'[side < 0]}", pan(0.3, -0.09, 0.18 * side), at(s0 - 0.2, 0.18 * side, ZF + 0.005), 0.04, 0.03, X, kind="box", props=P))

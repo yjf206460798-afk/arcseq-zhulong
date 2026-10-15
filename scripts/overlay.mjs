@@ -1,7 +1,8 @@
 // 叠图比对（PATTERNS「复刻标准」）：页面按正交视图截图，用两个锚点（模型坐标 ↔ 参考图像素）求相似变换，对齐到参考图上，
 // 输出 REFERENCE / AFTER / OVERLAY（50%）三张。
 //   node scripts/overlay.mjs <输出目录> <spec.json>
-// spec：[{ name, ref, crop: [x0, y0, x1, y1], heading, elevation, mode, pre?, page?, scale?, anchors: [[[x, y, z], [px, py]], [[…], […]]] }]
+// spec：[{ name, ref, crop: [x0, y0, x1, y1], heading, elevation, mode, pre?, after?, page?, scale?, zoom?, refName?, anchors: [[[x, y, z], [px, py]], [[…], […]]] }]
+//   zoom：输出放大倍数（参考图按 LANCZOS 放大、模型截图按同一变换在 zoom 倍分辨率上重采样）；refName：REFERENCE 文件名（A/B 两版共用一张）。
 // 云端截图前 export CHROME_PATH="$PWD/scripts/chrome.sh"。
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -27,7 +28,7 @@ for (const sp of specs) {
   if (r.status !== 0) throw new Error(r.stderr || r.stdout);
   const line = r.stdout.split("\n").filter((l) => l.startsWith("eval: ")).at(-1);
   const model = JSON.parse(JSON.parse(line.slice(6)));
-  const job = { ...sp, shot, model: model.map(([x, y]) => [x * scale, y * scale]), refPts: sp.anchors.map((a) => a[1]), ref: resolve(ROOT, sp.ref), out };
+  const job = { ...sp, zoom: sp.zoom ?? 1, refName: sp.refName ?? sp.name, shot, model: model.map(([x, y]) => [x * scale, y * scale]), refPts: sp.anchors.map((a) => a[1]), ref: resolve(ROOT, sp.ref), out };
   const py = spawnSync("python3", ["-c", `
 import json, sys, math
 import numpy as np
@@ -35,7 +36,9 @@ from PIL import Image
 j = json.loads(sys.argv[1])
 ref = Image.open(j["ref"]).convert("RGB")
 x0, y0, x1, y1 = j["crop"]
+Z = j["zoom"]
 R = ref.crop((x0, y0, x1, y1))
+R = R.resize((round(R.width * Z), round(R.height * Z)), Image.LANCZOS)
 (m1, m2), (r1, r2) = j["model"], j["refPts"]
 # 相似变换：模型截图像素 → 参考图像素（缩放 + 旋转 + 平移），用两锚点解
 zm = complex(m2[0] - m1[0], m2[1] - m1[1])
@@ -47,12 +50,14 @@ ai = 1 / a
 bi = -b / a
 # 输入 = ai * (输出 + crop原点) + bi
 c, s = ai.real, ai.imag
-tx = bi.real + c * x0 - s * y0
-ty = bi.imag + s * x0 + c * y0
+# 输出像素是放大 Z 倍的裁剪坐标：参考图像素 = 输出 / Z + 裁剪原点
+c, s = c / Z, s / Z
+tx = bi.real + (ai * complex(x0, y0)).real
+ty = bi.imag + (ai * complex(x0, y0)).imag
 shot = Image.open(j["shot"]).convert("RGB")
 A = shot.transform(R.size, Image.AFFINE, (c, -s, tx, s, c, ty), resample=Image.BICUBIC, fillcolor=(16, 21, 24))
 n = j["name"]
-R.save(f"{j['out']}/REFERENCE-{n}.png")
+R.save(f"{j['out']}/REFERENCE-{j['refName']}.png")
 A.save(f"{j['out']}/AFTER-{n}.png")
 Image.blend(R, A, 0.5).save(f"{j['out']}/OVERLAY-{n}.png")
 print(n, "scale", round(abs(a), 4), "rot", round(math.degrees(math.atan2(a.imag, a.real)), 2))

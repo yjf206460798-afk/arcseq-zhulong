@@ -79,7 +79,7 @@
     uniform float uEnvK;
     #include <clipping_planes_pars_fragment>
     float st(float a, float b, float x) { float t = clamp((x - a) / (b - a), 0.0, 1.0); return t * t * (3.0 - 2.0 * t); }
-    // —— B 画法（参考图那种金属质感）：工作室环境光 = 地暗顶亮的渐变 + 四块柔光箱（主光左上前、顶条、右后轮廓条、前下补光），
+    // —— B 画法（参考图那种金属质感）：工作室环境光 = 地暗顶亮的渐变 + 五块柔光箱（主光左上前、右上前副光、顶条、右后轮廓条、前下补光），
     // 世界坐标里固定（相机永远在 +x 看向转台，所以等于“跟着相机”）；粗糙度越大，柔光箱的边越软、越暗淡。
     float box(vec3 r, vec3 d, float size, float rough) {
       float c = dot(r, normalize(d));
@@ -90,6 +90,7 @@
       vec3 col = mix(vec3(0.015, 0.018, 0.022), vec3(0.20, 0.215, 0.235), st(-0.35, 0.95, r.z));
       float k = 1.0 / (1.0 + rough * 4.0);
       col += vec3(1.00, 0.97, 0.92) * 5.0 * k * box(r, vec3(0.45, -0.6, 0.7), 0.12, rough);
+      col += vec3(0.92, 0.95, 1.00) * 3.4 * k * box(r, vec3(0.45, 0.6, 0.7), 0.12, rough);
       col += vec3(0.85, 0.90, 1.00) * 2.6 * k * box(r, vec3(0.05, 0.1, 1.0), 0.06, rough) * st(-0.9, 0.2, r.x);
       col += vec3(0.80, 0.88, 1.00) * 3.2 * k * box(r, vec3(-0.55, 0.75, 0.25), 0.05, rough);
       col += vec3(0.60, 0.62, 0.65) * 1.0 * k * box(r, vec3(1.0, 0.25, -0.15), 0.14, rough);
@@ -98,6 +99,7 @@
     vec3 envIrradiance(vec3 n) {
       vec3 col = mix(vec3(0.03, 0.035, 0.04), vec3(0.22, 0.235, 0.25), st(-0.6, 0.9, n.z));
       col += vec3(1.00, 0.97, 0.92) * 1.1 * max(dot(n, normalize(vec3(0.45, -0.6, 0.7))), 0.0);
+      col += vec3(0.92, 0.95, 1.00) * 0.8 * max(dot(n, normalize(vec3(0.45, 0.6, 0.7))), 0.0);
       col += vec3(0.85, 0.90, 1.00) * 0.35 * max(n.z, 0.0);
       col += vec3(0.80, 0.88, 1.00) * 0.35 * max(dot(n, normalize(vec3(-0.55, 0.75, 0.25))), 0.0);
       col += vec3(0.60, 0.62, 0.65) * 0.25 * max(dot(n, normalize(vec3(1.0, 0.25, -0.15))), 0.0);
