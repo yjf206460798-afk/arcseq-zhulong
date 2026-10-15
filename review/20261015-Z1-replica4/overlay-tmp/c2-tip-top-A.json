@@ -1,0 +1,1 @@
+[["wait",500],["eval","__arcseq.resolution(2)"],["eval","__arcseq.view(90, \"lines\", 90)"],["eval","__arcseq.focus([9.0,0,1.66],7)"],["wait",200],["eval","JSON.stringify([[9.5,0,1.65],[8.5,0,1.65]].map((p) => __arcseq.project(p)))"],["shot","/home/user/arcseq-zhulong/review/20261015-Z1-replica4/overlay-tmp/c2-tip-top-A.png",".af-stage",2]]
