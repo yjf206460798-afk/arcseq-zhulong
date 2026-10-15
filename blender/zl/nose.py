@@ -610,6 +610,7 @@ HATCHES = [("roof", 3.1, 4.06, 0.02, 0.73), ("roof", 0.68, 1.0, 0.25, 0.85), ("o
 
 def hatches():
     """口盖本体：口盖线以内一块高出蒙皮 0.8 mm 的薄板（板边离口盖线 4 mm——这一圈就是凹缝），板边内 1.5 cm 一圈紧固件（六角头，间距约 6 cm）。
+    板只有十几个顶点，顶点 AO 会把眉骨的遮挡、板边贴蒙皮的接触暗拉满整块板（R4 自查：屋面口盖成了一块暗板），所以不烘顶点 AO（aoFlat）。
     腹底的是前起落架舱门（左右两扇）。"""
     from kit.parts import bolts
 
@@ -630,7 +631,7 @@ def hatches():
             g0, g1 = s0 + 0.004, s1 - 0.004
             C = [(g0, t0 + dt(g0)), (g1, t0 + dt(g1)), (g1, t1 - dt(g1)), (g0, t1 - dt(g0))]
             pts = [corner(s, t, lift) for s, t in C for lift in (-0.002, 0.0008)]
-            o, l = hull(f"hatch.{k}.{tag}", pts, "belly" if facet in ("lower", "belly") else "hull", {"skin": f"hatch.{k}.{tag}", "lineLevel": "structure"}, bevel=0.0015)
+            o, l = hull(f"hatch.{k}.{tag}", pts, "belly" if facet in ("lower", "belly") else "hull", {"skin": f"hatch.{k}.{tag}", "lineLevel": "structure", "aoFlat": True}, bevel=0.0015)
             EDGES[o.name] = l
             out.append(o)
             # 紧固件：板边内 1.5 cm 一圈
