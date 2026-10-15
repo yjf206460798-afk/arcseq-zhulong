@@ -143,7 +143,7 @@ def studio(target=(0.0, 0.0, 1.0), scale=1.0, right=(0, 1, 0), toward=(1, 0, 0))
         o.rotation_euler = (-dv).to_track_quat("-Z", "Y").to_euler()
 
 
-def freestyle(k=1.0):
+def freestyle(k=1.0, crease=True):
     """Freestyle 细线，分三级（VISUAL_TARGET「线条」）：L0 外轮廓 = 主描边色、最亮；L1 件与件的轮廓 / 边界 = 结构线色；
     L2 接缝与分块轮廓（edge mark）= 结构线色、更细更淡。粗细按 1× 设定图像素给，乘渲染倍数 k。"""
     sc = bpy.context.scene
@@ -153,7 +153,8 @@ def freestyle(k=1.0):
     fs.crease_angle = math.radians(140)
     for ls in list(fs.linesets):
         fs.linesets.remove(ls)
-    for name, types, col, alpha, th in (("L0", ("external_contour",), LINE_MAIN, 0.75, 0.75), ("L1", ("silhouette", "border", "crease"), LINE_STRUCT, 0.55, 0.5),
+    l1 = ("silhouette", "border", "crease") if crease else ("silhouette", "border")
+    for name, types, col, alpha, th in (("L0", ("external_contour",), LINE_MAIN, 0.75, 0.75), ("L1", l1, LINE_STRUCT, 0.55, 0.5),
                                         ("L2", ("edge_mark",), LINE_STRUCT, 0.45, 0.38)):
         a = fs.linesets.new(name)
         a.select_by_visibility = True
@@ -183,7 +184,7 @@ def mark_lines():
         at.data.foreach_set("value", flags)
 
 
-def cycles(path, samples=64, transparent=True, lines=True, k=1.0):
+def cycles(path, samples=64, transparent=True, lines=True, k=1.0, crease=True):
     sc = bpy.context.scene
     sc.render.engine = "CYCLES"
     sc.cycles.device = "CPU"
@@ -196,6 +197,6 @@ def cycles(path, samples=64, transparent=True, lines=True, k=1.0):
     sc.view_settings.look = "AgX - Base Contrast"
     sc.render.use_freestyle = lines
     if lines:
-        freestyle(k)
+        freestyle(k, crease)
     sc.render.filepath = path
     bpy.ops.render.render(write_still=True)

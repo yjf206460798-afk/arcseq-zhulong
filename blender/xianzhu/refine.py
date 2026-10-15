@@ -12,6 +12,7 @@ import numpy as np
 from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 
+import draft
 import geo
 
 # 位置表：id、视向（front 从前往后打 / back 从后往前打）、(y, z)、外形（宽 = 沿 u、高 = 沿 v，米）、样式、u 方向（屏幕里的角度，度，0 = 水平）、镜像
@@ -159,6 +160,17 @@ def kneepads(parts, props):
     return out
 
 
+def simplify(H, d):
+    """凸轮廓抽稀：相邻点间距不小于 d（靴底轮廓点太密，倒角后一块底上千个三角形）。"""
+    out = [H[0]]
+    for p in H[1:]:
+        if np.linalg.norm(p - out[-1]) >= d:
+            out.append(p)
+    if len(out) > 3 and np.linalg.norm(out[-1] - out[0]) < d:
+        out.pop()
+    return np.array(out)
+
+
 def soles(parts, props, top=0.034):
     """靴底：起稿靴子 z < top 的部分（软的齿纹底）切掉，换一块干净的底：脚印轮廓外扩 3 mm，0～top 厚，上沿倒角，
     侧面一道 1.2 cm 高的分层线（中底 / 大底）。"""
@@ -169,55 +181,101 @@ def soles(parts, props, top=0.034):
         o = parts[f"boot.{side}"]
         V = np.array([tuple(v.co) for v in o.data.vertices])
         band = V[(V[:, 2] > top - 0.004) & (V[:, 2] < top + 0.012)]
-        H = offset2d(hull2d(band[:, :2]), 0.004)
+        H = simplify(offset2d(hull2d(band[:, :2]), 0.004), 0.006)
         bm = bmesh.new()
         bm.from_mesh(o.data)
         bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:], dist=1e-6, plane_co=(0, 0, top - 0.002), plane_no=(0, 0, 1), clear_inner=True)
         bm.to_mesh(o.data)
         bm.free()
+        draft.restore_normals(o)
         for k, (z0, z1, grow_) in enumerate(((0.0, 0.012, 0.004), (0.012, top, 0.0))):
             pts = [(x + (x - H[:, 0].mean()) * 0.0, y_, zz) for x, y_ in offset2d(H, grow_) for zz in (z0, z1)]
             out.append(("sole", geo.hull(f"xz.boot.{side}.sole{k}", pts, "sole", props, bevel=0.002)))
     return out
 
 
-def connector(att_objs, props):
-    """脐带接口：起稿里软管连着的圆盘接头（软的）换成干净的件：圆座 + 斜面圈 + 四芯插座（氧 / 冷 / 电 / 数），
-    轴向取圆盘的法向（PCA 最小方差方向）。软管保留起稿的盘绕管。返回 (新件, 被替换掉的面数)。"""
-    out = []
-    for o in att_objs:
-        V = np.array([tuple(v.co) for v in o.data.vertices])
-        # 圆盘：软管里最“胖”的一团——取离胸前最远的点附近 4 cm
-        tip = V[np.argmax(V[:, 0] + 0.3 * V[:, 2])]
-        near = np.linalg.norm(V - tip, axis=1) < 0.045
-        P = V[near]
-        m = P.mean(0)
-        w, U = np.linalg.eigh(np.cov((P - m).T))
-        ax = Vector(U[:, 0])
-        if ax.dot(Vector((0.3, 1.0, 0.0))) < 0:
-            ax = -ax
-        c = Vector(m)
-        rad = float(np.percentile(np.linalg.norm((P - m) - np.outer((P - m) @ np.array(ax), np.array(ax)), axis=1), 90))
-        # 删掉起稿圆盘的面
-        bm = bmesh.new()
-        bm.from_mesh(o.data)
-        dead = [f for f in bm.faces if (f.calc_center_median() - c).length < rad * 1.05]
-        bmesh.ops.delete(bm, geom=dead, context="FACES")
-        bm.to_mesh(o.data)
-        bm.free()
-        R = geo.frame_from(ax, Vector((0, 0, 1)))
-        out.append(("umbilical", geo.tube("xz.suit.umbilical", [c - ax * 0.012, c + ax * 0.01], rad * 0.95, "umbilical", props, sides=32)))
-        out.append(("umbilical", geo.tube("xz.suit.umbilical.bezel", [c + ax * 0.008, c + ax * 0.016], rad * 0.78, "metal", props, sides=32)))
-        for k in range(4):
-            a = math.pi / 4 + k * math.pi / 2
-            p = c + ax * 0.016 + (R.col[1] * math.cos(a) + R.col[2] * math.sin(a)) * rad * 0.4
-            out.append(("umbilical", geo.tube(f"xz.suit.umbilical.port{k}", [p, p + ax * 0.007], rad * 0.17, "chrome", props, sides=12)))
-        o.name = "xz.suit.hose"
-        o.data.materials.clear()
-        o.data.materials.append(geo.material("hose"))
-        for k, v in props.items():
-            o[k] = v
-    return out
+# 脐带接头（Tripo Smart Mesh：refs/ai_draft/X1_脐带接头_smartmesh.glb）：长方体主体，一端四根短管（氧 / 冷 / 电 / 数），
+# 另一端提手。底稿坐标里短管朝 −x、提手朝 +x、主体高沿 z、薄的方向沿 y。
+PLUG_SCALE = 0.1  # 主体约 6 × 3 × 3.2 cm，连短管长 10 cm
+PLUG_BODY = Vector((0.10, 0.0, 0.307))  # 主体中心（底稿坐标）
+PLUG_TIP = Vector((-0.50, 0.0, 0.29))  # 四根短管端头的中心
+PLUG_HALF_T = 0.161  # 主体半厚（底稿 y）
+
+
+def plug(name, R, centre, props, path=None):
+    """接头放到世界里：R 的三列 = 底稿 x / y / z 轴在世界里的方向（右手系），主体中心落在 centre。只有刚体 + 等比变换，
+    Tripo 的自定义法线照样有效。返回 (对象, 短管端头中心, 短管方向, 变换矩阵)。"""
+    o = draft.import_glb(path or draft.DRAFT_CONNECTOR)[0]
+    o.name = o.data.name = name
+    M = Matrix.Translation(centre) @ (R.to_4x4() @ Matrix.Diagonal((PLUG_SCALE,) * 3 + (1.0,))) @ Matrix.Translation(-PLUG_BODY)
+    draft.transform_all([o], M)
+    o.data.materials.clear()
+    o.data.materials.append(geo.material("umbilical"))
+    for k, v in props.items():
+        o[k] = v
+    return o, M @ PLUG_TIP, -(R.col[0]), M
+
+
+def connector(att_objs, parts, props):
+    """左胸脐带接口：起稿里软管连着的圆盘接头（软的）删掉，换成 Tripo 脐带接头：主体平贴胸前（薄面朝外），提手朝上，
+    四根短管朝下接进起稿保留的盘绕软管。返回 [(类, 对象)] 和接头信息（坐姿重接软管用）。"""
+    o = att_objs[0]
+    V = np.array([tuple(v.co) for v in o.data.vertices])
+    tip = V[np.argmax(V[:, 0] + 0.3 * V[:, 2])]
+    near = np.linalg.norm(V - tip, axis=1) < 0.045
+    P = V[near]
+    m = P.mean(0)
+    w, U = np.linalg.eigh(np.cov((P - m).T))
+    ax = Vector(U[:, 0])
+    if ax.dot(Vector((1.0, 0.3, 0.0))) < 0:
+        ax = -ax
+    c = Vector(m)
+    rad = float(np.percentile(np.linalg.norm((P - m) - np.outer((P - m) @ np.array(ax), np.array(ax)), axis=1), 90))
+    bm = bmesh.new()
+    bm.from_mesh(o.data)
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if (f.calc_center_median() - c).length < rad * 1.05], context="FACES")
+    bm.to_mesh(o.data)
+    bm.free()
+    draft.restore_normals(o)
+    o.name = o.data.name = "xz.suit.hose"
+    # 胸面上的落点与外法线
+    tree, _ = tree_of([parts["torso"]])
+    q, n, _, _ = tree.find_nearest(c)
+    n = Vector(n).normalized()
+    down = Vector((0, 0, -1))
+    d = (down - n * down.dot(n)).normalized()
+    X = -d  # 底稿 +x（提手）朝上
+    Y = n  # 底稿 +y 朝外
+    R = Matrix((X, Y, X.cross(Y))).transposed()
+    centre = Vector(q) + n * (PLUG_HALF_T * PLUG_SCALE + 0.004)
+    obj, tip_w, tip_d, M = plug("xz.suit.umbilical", R, centre, props)
+    info = {"chest_tip": tuple(tip_w), "chest_dir": tuple(tip_d), "disc_r": round(rad, 4), "M": draft.flat(M)}
+    return [("umbilical", obj)], info
+
+
+def seat_plug(port):
+    """座椅侧接头（坐姿版）：同一件，主体贴在座椅左侧板外侧（薄面朝 +y），短管朝上（接胸前来的软管），提手朝下。
+    port：座椅局部坐标的插座点（seat.SEAT["umbilical_port"]）。返回 (变换矩阵, 短管端头中心, 短管方向)——坐姿版直接把
+    胸前那件（已减面、已烘法线）按 M_座椅 · M_胸前⁻¹ 复制过去，两处共用 UV 与贴图。"""
+    X = Vector((0, 0, -1))
+    Y = Vector((0, 1, 0))
+    R = Matrix((X, Y, X.cross(Y))).transposed()
+    centre = Vector(port) + Y * (PLUG_HALF_T * PLUG_SCALE)
+    M = Matrix.Translation(centre) @ (R.to_4x4() @ Matrix.Diagonal((PLUG_SCALE,) * 3 + (1.0,))) @ Matrix.Translation(-PLUG_BODY)
+    return M, M @ PLUG_TIP, -(R.col[0])
+
+
+def seated_hose(a, da, b, db, props, radius=0.011):
+    """坐姿软管：胸前接头的短管端头 a（方向 da）→ 座椅侧接头端头 b（方向 db），三次贝塞尔，两端顺着短管方向出。"""
+    a, b, da, db = Vector(a), Vector(b), Vector(da).normalized(), Vector(db).normalized()
+    L = (b - a).length
+    p1, p2 = a + da * L * 0.4, b + db * L * 0.4
+    pts = []
+    for k in range(25):
+        t = k / 24
+        u = 1 - t
+        pts.append(a * u ** 3 + p1 * 3 * u * u * t + p2 * 3 * u * t * t + b * t ** 3)
+    return geo.tube("xz.suit.hose.seated", pts, radius, "cable", props, sides=16)
 
 
 def spine_line(parts, props, z0=1.13, z1=1.5):

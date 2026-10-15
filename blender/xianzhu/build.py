@@ -1,9 +1,19 @@
-"""銜燭 几何母版（Blender 建模脚本，FIG.02 附）：从零生成人体底模、软态服装、头盔，导出网页资源，出审图渲染。
+"""銜燭 几何母版 · Tripo 起稿路线（作者 2026-10-15 定；原 mhclo 服装壳退为后备：build_mhclo.py）。
 
-    .venv/bin/python blender/xianzhu/build.py --quick            # 只建模 + Workbench 三视图（dist/xianzhu/quick/）
-    .venv/bin/python blender/xianzhu/build.py                    # 建模 + 导出 assets/xianzhu.glb、xianzhu.json
-    .venv/bin/python blender/xianzhu/build.py --review <目录>     # 再出交审图（Cycles 三视图 + 平涂三视图 + 头盔特写 + 叠图）
+    .venv/bin/python blender/xianzhu/build.py                       # 建模 → 骨架 → 减面烘焙 → 导出 assets/xianzhu*.glb、xianzhu.json
+    .venv/bin/python blender/xianzhu/build.py --review <目录>        # 同上，再出交审图（review_x1.py）
+    .venv/bin/python blender/xianzhu/build.py --no-export --review <目录>
+    源 GLB 是参数（发布版在 Tripo 付费版按同输入、同参数重新生成后换文件重跑）：
+    --draft-body <glb>  --draft-helmet <glb>  --draft-connector <glb>   （默认 refs/ai_draft/ 里的测试稿）
 
+流程（WORKFLOW「AI 起稿」第 5 步）：
+1. 身体（draft.py）：缩放到盔顶 1.80、站正、服装底形左右对称（单侧件：左胸脐带接口、软管保留单侧）；胸前乱码浮雕在左胸，
+   取右半镜像时一并磨掉；起稿自带的头盔丢掉。全程保住 Tripo 的自定义法线（draft.keep_normals / restore_normals）。
+2. 精修（refine.py）：扣具、护膝、靴底重做成干净硬棱；左胸换 Tripo 脐带接头；脊背暗朱红线；「銜燭」贴图。
+3. 明暗（paint.py）：配色卡按件定材质，起伏读出来靠顶点明暗 ao。
+4. 头盔（helmet_tripo.py）：Smart Mesh 修正版；暗琥珀遮光面罩拆成可动件（形态键 down）；颈环套住领口；天线保持细杆。
+5. 骨架（rig.py）：人体骨架按段贴到底稿上 → 权重 Data Transfer → 坐姿（seat.py = 烛龙 seat 表）。
+6. 减面与烘焙（lod.py）：网页常驻约 6 万三角形、座舱坐姿版约 3 万；高模细节烘成法线贴图。
 母版是脚本，不是文件（docs/BLENDER.md 规矩 1）；产物 .glb / .json / 渲染图都不手改。
 """
 import json
@@ -20,11 +30,25 @@ import numpy as np  # noqa: E402
 from mathutils import Vector  # noqa: E402
 
 import body as B  # noqa: E402
-import helmet  # noqa: E402
-import suit  # noqa: E402
+import draft  # noqa: E402
+import geo  # noqa: E402
+import helmet_tripo  # noqa: E402
+import lod  # noqa: E402
+import paint  # noqa: E402
+import refine  # noqa: E402
+import rig as RG  # noqa: E402
 from mh import MH  # noqa: E402
 
 PROPS = {"figure": "xianzhu"}
+ASSETS = os.path.join(ROOT, "assets")
+
+# 起稿零件 → 导出名、Tripo 种类（lod.TARGET）
+NAMES = {"torso": "xz.suit.torso", "face": "xz.body.face"}
+for _s in "lr":
+    NAMES.update({f"uarm.{_s}": f"xz.suit.uarm.{_s}", f"farm.{_s}": f"xz.suit.farm.{_s}", f"thigh.{_s}": f"xz.suit.thigh.{_s}",
+                  f"shin.{_s}": f"xz.suit.shin.{_s}", f"hand.{_s}": f"xz.glove.{_s}", f"boot.{_s}": f"xz.boot.{_s}"})
+LAYER_RULES = (("xz.hw.", "L3"), ("xz.suit.", "L3"), ("xz.kneepad.", "L3"), ("xz.glove.", "L3"), ("xz.boot.", "L3"),
+               ("xz.helmet.", "L5"), ("xz.body.", "body"), ("xz.seat.", "seat"))
 
 
 def arg(name, default=None):
@@ -32,90 +56,87 @@ def arg(name, default=None):
     return a[a.index(name) + 1] if name in a else default
 
 
-def model():
+def sources():
+    return {"body": arg("--draft-body", draft.DRAFT_BODY), "helmet": arg("--draft-helmet", draft.DRAFT_HELMET),
+            "connector": arg("--draft-connector", draft.DRAFT_CONNECTOR)}
+
+
+def model(src, tex_dir):
+    """建模：返回 (起稿零件 {种类名: 对象}, 后加件列表, 头盔件 {名字: 对象}, 胸前接头信息, 日志)。"""
     bpy.ops.wm.read_factory_settings(use_empty=True)
     t0 = time.time()
-    mh = MH()
-    body = B.Body(mh)
-    body.smooth()
-    body.rigged()
-    rest = body.evaluated()
-    B.stand(body)
-    posed = body.evaluated()
-    parts, seams, ch = suit.build(mh, body, rest, posed, PROPS)
-    collar = bpy.data.objects["xz.suit.collar"]
-    collar_top = max(v.co.z for v in collar.data.vertices)
-    heads, hidden = B.head_parts(body, rest, posed, collar_top, PROPS)
-    parts += heads
-    hel, _ = helmet.build(body, PROPS, state=arg("--helmet", "soft"))
-    parts += hel
-    body.obj.hide_render = True
-    tag_layers()
-    body.stand_V = posed
-    body.rest_V = rest
-    body.stand_head = body.pb("head").matrix.copy()
-    print(f"model {time.time() - t0:.1f}s · {len(parts)} suit parts · {len(seams)} seam lines")
-    return mh, body, parts, seams, ch
-
-
-LAYER_RULES = (("xz.bladder.", "L2"), ("xz.harness.", "L3"), ("xz.suit.", "L3"), ("xz.kneepad.", "L3"), ("xz.glove.", "L3"), ("xz.boot.", "L3"),
-               ("xz.helmet.", "L5"), ("xz.body.", "body"))
-
-
-def tag_layers():
-    """每个零件写上所属层（spec.LAYERS），X2 分层爆炸按它分组。"""
-    for o in bpy.data.objects:
+    log = {}
+    parts, att, log["body"] = draft.build_body(PROPS, src["body"])
+    extras = []
+    for _, o in refine.build_hardware(parts, PROPS) + refine.kneepads(parts, PROPS) + refine.soles(parts, PROPS):
+        extras.append(o)
+    draft.DRAFT_CONNECTOR = src["connector"]
+    items, plug = refine.connector(att, parts, PROPS)
+    extras += [o for _, o in items] + att
+    extras += [o for _, o in refine.spine_line(parts, PROPS)]
+    extras += [o for _, o in refine.inscription(parts, PROPS, os.path.join(tex_dir, "xianzhu-inscription.png"))]
+    log["paint"] = paint.paint(parts)
+    for o in att:
+        paint.shade(o)
+    hel, log["helmet"] = helmet_tripo.build(parts, PROPS, src["helmet"])
+    paint.shade(hel["xz.helmet.shell"], floor=0.45)
+    # 名字、种类、层
+    for k, o in parts.items():
+        o.name = o.data.name = NAMES[k]
+        o["tripo"] = k.split(".")[0]
+    for o in att:
+        o["tripo"] = "hose"
+    hel["xz.helmet.shell"]["tripo"] = "shell"
+    hel["xz.helmet.neckring"]["tripo"] = "neckring"
+    for o in items:
+        o[1]["tripo"] = "plug"
+    every = list(parts.values()) + extras + list(hel.values())
+    for o in every:
         for pre, lay in LAYER_RULES:
             if o.name.startswith(pre):
                 o["layer"] = lay
                 break
+        for k, v in PROPS.items():
+            o[k] = v
+    paint.ensure_ao(every)
+    log["model_s"] = round(time.time() - t0, 1)
+    return parts, extras, hel, plug, log
 
 
-def xz_objects():
+def rigging(parts, extras, hel):
+    """人体骨架贴到底稿上、权重传过去。返回 (Body, 日志)。"""
+    mh = MH()
+    body = B.Body(mh)
+    body.smooth()
+    body.rigged()
+    B.stand(body)
+    log = {"fit_median_m": RG.fit(body, parts)}
+    RG.rest_from_pose(body)
+    log["bones"] = RG.weight_parts(body, parts)
+    rigid = [o for o in hel.values()] + [o for o in extras if o.name == "xz.body.cap"]
+    soft = [o for o in extras if o not in rigid] + [o for n, o in hel.items() if n == "xz.suit.neckseal"]
+    rigid = [o for o in rigid if o not in soft]
+    RG.weight_extras(parts, soft)
+    for o in rigid:
+        RG.transfer(None, o, rigid="head")
+    RG.attach(list(parts.values()) + extras + list(hel.values()), body.rig)
+    body.obj.hide_render = True
+    return body, log
+
+
+def meshes():
     return [o for o in bpy.data.objects if o.type == "MESH" and o.name.startswith("xz.") and o.name != "xz.body" and not o.hide_render]
-
-
-def repose(body, V_new, suffix):
-    """全部服装件换到新姿态：服装 / 面部 / 眼睛按 mhclo 式绑定跟身体（绑在站姿身体上）；头盔整体跟头骨刚体走。
-    返回新对象列表（原站姿对象不动）。"""
-    from bind import Binding
-
-    M = body.rig.matrix_world @ body.pb("head").matrix @ (body.rig.matrix_world @ body.stand_head).inverted()
-    out = []
-    for o in xz_objects():
-        me = o.data.copy()
-        if me.shape_keys:
-            # 形态键（遮光面罩 down）跟着刚体走：头盔件整体变换，键也一起变
-            pass
-        V = np.empty(len(me.vertices) * 3)
-        me.vertices.foreach_get("co", V)
-        V = V.reshape(-1, 3)
-        if o.name.startswith("xz.helmet."):
-            W = np.array([tuple(M @ Vector(v)) for v in V])
-            if me.shape_keys:
-                for kb in me.shape_keys.key_blocks:
-                    for d in kb.data:
-                        d.co = M @ d.co
-        else:
-            W = Binding(body.stand_V, body.faces, V).apply(V_new)
-        me.vertices.foreach_set("co", W.ravel())
-        me.update()
-        n = bpy.data.objects.new(o.name + suffix, me)
-        for k in o.keys():
-            n[k] = o[k]
-        bpy.context.scene.collection.objects.link(n)
-        out.append(n)
-    return out
 
 
 def export(objs, path):
     bpy.ops.object.select_all(action="DESELECT")
     for o in objs:
+        o.hide_set(False)
         o.select_set(True)
     bpy.context.view_layer.objects.active = objs[0]
-    bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", use_selection=True, export_extras=True, export_apply=True, export_normals=True,
+    bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", use_selection=True, export_extras=True, export_apply=False, export_normals=True,
                               export_texcoords=True, export_vertex_color="ACTIVE", export_all_vertex_colors=False, export_materials="EXPORT",
-                              export_image_format="NONE", export_yup=True)
+                              export_image_format="AUTO", export_yup=True, export_morph=True, export_skins=False, export_animations=False)
 
 
 def tris(objs):
@@ -126,197 +147,132 @@ def tris(objs):
     return n
 
 
-def review(out, k=3, samples=48):
-    """交审图：设定图同画幅三视图（REFERENCE / AFTER / 50% 叠图）、平涂分色叠图与逐类 IoU、头盔特写。"""
-    import numpy as np
-    from PIL import Image
+def seated(body, parts, plug, lod1=True):
+    """坐姿副本（座椅局部坐标，原点 SRP）：骨架摆进座椅，各件按骨架变形后复制成新对象（名字 + .seated）；头盔、脸、通讯帽
+    跟头骨刚体走（遮光面罩的形态键一起变换）。盘绕软管换成胸前接头 → 座椅左侧接头的一根软管。返回新对象列表。"""
+    from mathutils import Matrix
 
-    import look
-    import render
+    from seat import SEAT
 
-    os.makedirs(out, exist_ok=True)
-    tmp = os.path.join(out, "frames")
-    os.makedirs(tmp, exist_ok=True)
-    src = Image.open(os.path.join(ROOT, "refs", "concept", "X1_衔烛设定图.png")).convert("RGB")
-    split = Image.open(os.path.join(ROOT, "refs", "concept", "X1_衔烛设定图_分色.png")).convert("RGB")
-    cal0 = render.calib("soft.front")
-    x0, y0, x1, y1 = cal0["region"]
-    W, H = (x1 - x0) * k, (y1 - y0) * k
-    views = (("front", "soft.front"), ("side", "soft.side"), ("back", "soft.back"))
-    # —— 水平对位（侧视按躯干、正背视按腿段质心，与设定图标定同一量法）——
-    look.flat_colours()
-    shifts = {view: render.align(view, fig, render.calib(fig), k, tmp) for view, fig in views}
-    print("align shift (m):", {k_: round(v, 4) for k_, v in shifts.items()})
-    # —— 画法 B（Cycles + Freestyle）——
-    look.cycles_materials()
-    render.mark_lines()
-    after = Image.new("RGBA", (W, H), tuple(int(c * 255) for c in render.BG) + (255,))
-    for view, fig in views:
-        cal = render.calib(fig)
-        render.place_ortho(view, cal, k, shift=shifts[view])
-        _, right, toward = render.VIEWS[view]
-        render.studio(target=(0, 0, 1.0), right=right, toward=toward)
-        p = os.path.join(tmp, f"{view}.png")
-        render.cycles(p, samples=samples, transparent=True, k=k)
-        after.alpha_composite(Image.open(p).convert("RGBA"))
-    after = after.convert("RGB")
-    ref = src.crop((x0, y0, x1, y1)).resize((W, H), Image.LANCZOS)
-    ref.save(os.path.join(out, "REFERENCE-soft.png"))
-    after.save(os.path.join(out, "AFTER-soft.png"))
-    Image.blend(ref, after, 0.5).save(os.path.join(out, "OVERLAY50-soft.png"))
-    # —— 平涂（分色 C 表）与分色图比：逐类 IoU（1× 像素，按各人像的面板偏移对齐）——
-    look.flat_colours()
-    flat = Image.new("RGB", (W, H), (255, 255, 255))
-    for view, fig in views:
-        cal = render.calib(fig)
-        render.place_ortho(view, cal, k, shift=shifts[view])
-        p = os.path.join(tmp, f"flat-{view}.png")
-        render.workbench(p, flat=True, background=(1, 1, 1), transparent=True)
-        im = Image.open(p).convert("RGBA")
-        flat.paste(im, (0, 0), im)
-    flat.save(os.path.join(out, "AFTER-soft-flat.png"))
-    meta = json.load(open(render.REGIONS))
-    dx, dy = next(f for f in meta["figures"] if f["name"] == "soft.front")["dx"], next(f for f in meta["figures"] if f["name"] == "soft.front")["dy"]
-    sref = split.crop((x0 - dx, y0 - dy, x1 - dx, y1 - dy))
-    sref.resize((W, H), Image.NEAREST).save(os.path.join(out, "REFERENCE-soft-split.png"))
-    Image.blend(sref.resize((W, H), Image.LANCZOS), flat, 0.5).save(os.path.join(out, "OVERLAY50-soft-split.png"))
-    iou = class_iou(np.asarray(sref), np.asarray(flat.resize(sref.size, Image.NEAREST)))
-    # —— 头盔特写（4×：设定图全身视图的 4 倍像素/米）——
-    look.cycles_materials()
-    helmet_closeups(out, k * 4 // 3)
-    with open(os.path.join(out, "metrics.json"), "w") as fp:
-        json.dump({"iou_soft": iou, "align_shift_m": shifts}, fp, ensure_ascii=False, indent=1)
-    print("IoU", iou)
+    stand = meshes()
+    hose = bpy.data.objects.get("xz.suit.hose")
+    chest = bpy.data.objects["xz.suit.umbilical"]
+    Vc = draft.verts(chest)
+    i_tip = int(np.argmin(np.linalg.norm(Vc - np.array(plug["chest_tip"]), axis=1)))
+    i_mid = int(np.argmin(np.linalg.norm(Vc - (np.array(plug["chest_tip"]) - np.array(plug["chest_dir"]) * 0.05), axis=1)))
+    dr = RG.Draped(body, parts["torso"])
+    B.sit(dr, SEAT)
+    Mh = RG.head_matrix(body.rig)
+    dg = bpy.context.evaluated_depsgraph_get()
+    out = []
+    for o in stand:
+        if o is hose:
+            continue
+        if o.data.shape_keys:
+            me = o.data.copy()
+            me.transform(Mh)
+            for kb in me.shape_keys.key_blocks:
+                for d in kb.data:
+                    d.co = Mh @ d.co
+        else:
+            me = bpy.data.meshes.new_from_object(o.evaluated_get(dg), preserve_all_data_layers=True, depsgraph=dg)
+        n = bpy.data.objects.new(o.name + ".seated", me)
+        for k in o.keys():
+            n[k] = o[k]
+        bpy.context.scene.collection.objects.link(n)
+        out.append(n)
+    sc = next(o for o in out if o.name == "xz.suit.umbilical.seated")
+    Vs = draft.verts(sc)
+    tip, mid = Vector(Vs[i_tip]), Vector(Vs[i_mid])
+    Ms, stip, sdir = refine.seat_plug(SEAT["umbilical_port"])
+    me = chest.data.copy()
+    me.transform(Ms @ draft.unflat(plug["M"]).inverted())
+    sp = bpy.data.objects.new("xz.seat.umbilical.seated", me)
+    for k in chest.keys():
+        sp[k] = chest[k]
+    sp["layer"] = "seat"
+    bpy.context.scene.collection.objects.link(sp)
+    h = refine.seated_hose(tip, (tip - mid).normalized(), stip, sdir, PROPS)
+    h["layer"] = "L3"
+    paint.ensure_ao([sp, h])
+    out += [sp, h]
+    for o in stand:
+        o.hide_render = True
+    if lod1:
+        lod.lod1([o for o in out if o is not sp])
+    return out, Matrix()
 
 
-def class_iou(ref, img):
-    """分色图 vs 平涂渲染：按 C 表类别的 IoU（面料、气囊、挽具、盔、棕色件、面部）。"""
-    sys.path.insert(0, HERE)
-    from x0_split import classify
-    from PIL import Image
+def meta_json(stand, seat_objs, logs, src):
+    from seat import SEAT
 
-    A = classify(Image.fromarray(ref))
-    B_ = classify(Image.fromarray(img))
-    out = {}
-    fig_a = (A != "white")
-    fig_b = (B_ != "white")
-    out["figure"] = round(float((fig_a & fig_b).sum() / max(1, (fig_a | fig_b).sum())), 3)
-    for c in ("fabric", "bladder", "harness", "helmet", "brown", "skin", "spine"):
-        a, b = A == c, B_ == c
-        u = (a | b).sum()
-        if u:
-            out[c] = round(float((a & b).sum() / u), 3)
-    return out
-
-
-def helmet_closeups(out, k):
-    import math
-
-    from mathutils import Vector
-
-    import render
-
-    sc = bpy.context.scene
-    shell = bpy.data.objects["xz.helmet.shell"]
-    import numpy as np
-
-    V = np.array([tuple(shell.matrix_world @ v.co) for v in shell.data.vertices])
-    c = Vector(((V.min(0) + V.max(0)) / 2).tolist()) + Vector((0.01, 0, -0.03))
-    cal = render.calib("soft.front")
-    ppm = cal["ppm"] * k
-    cam = render.camera()
-    cam.data.type = "ORTHO"
-    sc.render.resolution_x = sc.render.resolution_y = int(0.42 * ppm)
-    cam.data.ortho_scale = 0.42
-    shots = (("helmet-open-34", 32, 8, 0.0), ("helmet-open-front", 0, 2, 0.0), ("helmet-side", 90, 0, 0.0), ("helmet-back", 200, 12, 0.0),
-             ("helmet-closed-34", 32, 8, 1.0), ("helmet-closed-front", 0, 2, 1.0))
-    sv = bpy.data.objects["xz.helmet.sunvisor"]
-    for name, az, el, down in shots:
-        sv.data.shape_keys.key_blocks["down"].value = down
-        a, e = math.radians(az), math.radians(el)
-        d = Vector((math.cos(e) * math.cos(a), math.cos(e) * math.sin(a), math.sin(e)))
-        cam.location = c + d * 3
-        cam.rotation_euler = (-d).to_track_quat("-Z", "Y").to_euler()
-        right = d.cross(Vector((0, 0, 1))).normalized() * -1
-        render.studio(target=c, scale=0.35, right=tuple(right), toward=tuple(d))
-        render.cycles(os.path.join(out, f"AFTER-{name}.png"), samples=64, transparent=False, k=k / 3)
-    sv.data.shape_keys.key_blocks["down"].value = 0.0
-    # 胸前细节（铭文、脐带接口、挽具扣件）：同样 4×
-    c2 = Vector((0.12, 0.06, 1.3))
-    cam.data.ortho_scale = 0.42
-    d = Vector((math.cos(math.radians(8)) * math.cos(math.radians(25)), math.cos(math.radians(8)) * math.sin(math.radians(25)), math.sin(math.radians(8))))
-    cam.location = c2 + d * 3
-    cam.rotation_euler = (-d).to_track_quat("-Z", "Y").to_euler()
-    render.studio(target=c2, scale=0.35, right=tuple(d.cross(Vector((0, 0, 1))).normalized() * -1), toward=tuple(d))
-    render.cycles(os.path.join(out, "AFTER-chest-34.png"), samples=64, transparent=False, k=k / 3)
-    # 设定图头盔面板（睁眼 / 闭眼），放大到同样的像素/米，便于并排看
-    from PIL import Image
-
-    src = Image.open(os.path.join(ROOT, "refs", "concept", "X1_衔烛设定图.png")).convert("RGB")
-    x0, y0, x1, y1 = render.calib("soft.front")["region"]
-    helm = json.load(open(render.CALIB))["panels"]["helmet"]["region"]
-    crop = src.crop(tuple(helm))
-    crop.resize((crop.width * 3, crop.height * 3), Image.LANCZOS).save(os.path.join(out, "REFERENCE-helmet.png"))
+    return {
+        "figure": "xianzhu", "units": "m", "state": "soft",
+        "frame": "x 前、y 左、z 上；站姿原点在两脚之间地面，坐姿原点 = 座椅参考点 SRP（blender/xianzhu/seat.py = 烛龙 seat 表）",
+        "sources": {k: os.path.relpath(v, ROOT) for k, v in src.items()},
+        "layers": {o.name: o.get("layer") for o in stand},
+        "morph": {"xz.helmet.sunvisor": {"down": "遮光面罩落下（闭眼）；0 = 收起（睁眼）"}},
+        "textures": {"normal": ["xianzhu-body-nrm（2048²）", "xianzhu-hard-nrm（1024²）"], "decal": "xianzhu-inscription"},
+        "seat": {k: (v.tolist() if hasattr(v, "tolist") else ({kk: vv.tolist() for kk, vv in v.items()} if isinstance(v, dict) else v)) for k, v in SEAT.items()},
+        "tris": {"stand": tris(stand), "seated": tris(seat_objs)},
+        "log": logs,
+    }
 
 
 def main():
-    mh, body, parts, seams, ch = model()
-    if "--review" in sys.argv:
-        review(os.path.join(ROOT, arg("--review")), k=int(arg("--k", 3)), samples=int(arg("--samples", 48)))
+    src = sources()
+    tex_dir = os.path.join(ROOT, "dist", "xianzhu")
+    os.makedirs(tex_dir, exist_ok=True)
+    out_review = arg("--review")
+    logs = {}
+    parts, extras, hel, plug, logs["model"] = model(src, tex_dir)
+    print("model", json.dumps(logs["model"], ensure_ascii=False, default=str)[:2000])
+    if out_review:
+        import review_x1  # noqa: F401
+    body, logs["rig"] = rigging(parts, extras, hel)
+    print("rig", logs["rig"]["fit_median_m"])
+    logs["lod"], _ = lod.build(meshes(), tex_dir)
+    stand = meshes()
+    logs["tris_stand"] = tris(stand)
+    print("lod", logs["tris_stand"], "tris")
+    if out_review:
+        review_x1.standing(os.path.join(ROOT, out_review), stand, logs["model"]["body"]["helmet_src"])
+    seat_objs, _ = seated(body, parts, plug)
+    logs["tris_seated"] = tris(seat_objs)
+    print("seated", logs["tris_seated"], "tris")
+    if out_review:
+        review_x1.seated(os.path.join(ROOT, out_review), seat_objs)
+    if arg("--save"):
+        bpy.ops.wm.save_as_mainfile(filepath=arg("--save"))
+    if "--no-export" in sys.argv:
         return
-    if "--export" in sys.argv or "--quick" not in sys.argv:
-        from seat import SEAT
+    import look
 
-        assets = os.path.join(ROOT, "assets")
-        os.makedirs(assets, exist_ok=True)
-        stand = xz_objects()
-        export(stand, os.path.join(assets, "xianzhu.glb"))
-        V_seat = B.sit(body, SEAT)
-        seated = repose(body, V_seat, ".seated")
-        # 两份 GLB 零件同名：站姿件改名让位，坐姿件用原名导出，再换回来
-        names = [o.name for o in stand]
-        for o in stand:
-            o.name = o.name + ".stand"
-            o.hide_render = True
-        for o, n in zip(seated, names):
-            o.name = n
-        export(seated, os.path.join(assets, "xianzhu-seated.glb"))
-        for o, n in zip(seated, names):
-            o.name = n + ".seated"
-        for o, n in zip(stand, names):
-            o.name = n
-        from bind import Binding
-
-        seams_seated = []
-        for q in seams:
-            P = np.array(q["points"])
-            W = Binding(body.stand_V, body.faces, P).apply(V_seat)
-            seams_seated.append({**q, "points": W.round(4).tolist()})
-        meta = {
-            "figure": "xianzhu", "units": "m", "frame": "x 前、y 左、z 上；站姿原点在两脚之间地面，坐姿原点 = 座椅参考点 SRP（blender/xianzhu/seat.py）",
-            "state": "soft", "layers": {k: v for k, v in [(o.name, o.get("layer")) for o in stand]},
-            "seams": [{**q, "points": np.round(q["points"], 4).tolist()} for q in seams], "seams_seated": seams_seated,
-            "seat": {k: (v.tolist() if hasattr(v, "tolist") else ({kk: vv.tolist() for kk, vv in v.items()} if isinstance(v, dict) else v)) for k, v in SEAT.items()},
-            "tris": {"stand": tris(stand), "seated": tris(seated)},
-        }
-        with open(os.path.join(assets, "xianzhu.json"), "w") as fp:
-            json.dump(meta, fp, ensure_ascii=False, separators=(",", ":"))
-        print(f"export · stand {meta['tris']['stand']} tris · seated {meta['tris']['seated']} tris · {len(stand)} objects")
-        if "--seated-review" in sys.argv:
-            seated_review(os.path.join(ROOT, arg("--seated-review")), seated)
-        return
-    if "--quick" in sys.argv:
-        import render
-        import look
-
-        look.flat_colours()
-        out = os.path.join(ROOT, "dist", "xianzhu", "quick")
-        os.makedirs(out, exist_ok=True)
-        for view, fig in (("front", "soft.front"), ("side", "soft.side"), ("back", "soft.back")):
-            cal = render.calib(fig)
-            render.place_ortho(view, cal, 2)
-            render.workbench(os.path.join(out, f"{view}.png"))
-        return
+    look.export_materials()
+    for img in bpy.data.images:
+        if img.name.endswith("-nrm"):
+            img.file_format = "JPEG"
+    os.makedirs(ASSETS, exist_ok=True)
+    for o in seat_objs:
+        o.hide_render = True
+    for o in stand:
+        o.hide_render = False
+    export(stand, os.path.join(ASSETS, "xianzhu.glb"))
+    # 两份 GLB 零件同名：站姿件改名让位，坐姿件用原名导出
+    names = {o: o.name for o in stand}
+    for o in stand:
+        o.name = o.name + ".stand"
+    for o in seat_objs:
+        o.name = o.name.replace(".seated", "")
+    export(seat_objs, os.path.join(ASSETS, "xianzhu-seated.glb"))
+    for o in seat_objs:
+        o.name = o.name + ".seated"
+    for o, n in names.items():
+        o.name = n
+    with open(os.path.join(ASSETS, "xianzhu.json"), "w") as fp:
+        json.dump(meta_json(stand, seat_objs, logs, src), fp, ensure_ascii=False, separators=(",", ":"), default=str)
+    print(f"export · stand {logs['tris_stand']} tris · seated {logs['tris_seated']} tris · {len(stand)} objects")
 
 
-main()
+if __name__ == "__main__":
+    main()

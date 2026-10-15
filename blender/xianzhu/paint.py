@@ -62,3 +62,13 @@ def paint(parts):
         if mat in ("suit", "glove", "boot"):
             shade(o)
     return stats
+
+
+def ensure_ao(objs):
+    """没算过明暗的件（干净的重做件、头盔小件）写 ao = 1：所有件都带 COLOR_0，材质节点统一乘 ao。"""
+    for o in objs:
+        me = o.data
+        if me.color_attributes.get("ao") is None:
+            at = me.color_attributes.new("ao", "FLOAT_COLOR", "POINT")
+            at.data.foreach_set("color", np.ones(len(me.vertices) * 4))
+            me.color_attributes.active_color = at

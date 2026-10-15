@@ -17,7 +17,8 @@ from mathutils.kdtree import KDTree
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 DRAFT_BODY = os.path.join(ROOT, "refs", "ai_draft", "X1_软态正视_hd分件.glb")
-DRAFT_HELMET = os.path.join(ROOT, "refs", "ai_draft", "X1_头盔闭眼_smartmesh.glb")
+DRAFT_HELMET = os.path.join(ROOT, "refs", "ai_draft", "X1_头盔闭眼修正_smartmesh.glb")  # 早先那顶 X1_头盔闭眼_smartmesh 作废
+DRAFT_CONNECTOR = os.path.join(ROOT, "refs", "ai_draft", "X1_脐带接头_smartmesh.glb")
 FIG_H = 1.80  # 设定图米制标定：盔顶 → 鞋底
 
 
@@ -29,6 +30,9 @@ def import_glb(path):
     # 把父级变换烘进网格，去掉空物体
     for o in meshes:
         M = o.matrix_world.copy()
+        o["src_file"] = os.path.relpath(path, ROOT)
+        o["src_name"] = o.name  # GLB 里的原名：原样对照渲染（asis.py）按它配对
+        o["xform"] = flat(M)  # 原样导入 → 当前网格的累计变换（只含刚体 + 等比缩放）
         o.parent = None
         o.data.transform(M)
         o.matrix_world = Matrix()
@@ -36,6 +40,103 @@ def import_glb(path):
         if o.type != "MESH":
             bpy.data.objects.remove(o)
     return meshes
+
+
+# —— 保法线（PATTERNS「外部模型的导入、检查与保法线」）——————————————————————————————————————
+# Tripo 的平面与硬棱全靠 GLB 自带的自定义法线（导入后 sharp_edge / sharp_face 全是 0）。自定义法线按“角空间”编码，
+# 刚体变换、等比缩放之后仍然有效（Mesh.transform 会一起转），但任何改拓扑的操作（bmesh 切开、镜像、删面）之后就错位。
+# 做法：改拓扑之前把每个角的世界法线存进角属性 NORMAL_ATTR（bmesh 切开时插值、复制时照抄），改完再写回自定义法线；
+# 镜像出来的那一半把 y 分量取反。
+NORMAL_ATTR = "tripo_n"
+
+
+def keep_normals(o):
+    """当前每个角的法线（含自定义法线）→ 角属性 NORMAL_ATTR。"""
+    me = o.data
+    N = np.empty(len(me.loops) * 3)
+    me.corner_normals.foreach_get("vector", N)
+    at = me.attributes.get(NORMAL_ATTR) or me.attributes.new(NORMAL_ATTR, "FLOAT_VECTOR", "CORNER")
+    at.data.foreach_set("vector", N)
+
+
+def restore_normals(o, flip=None):
+    """角属性 NORMAL_ATTR → 自定义法线。flip(面中心) 为真的面（镜像出来的一半）y 取反；属性坏掉（长度≈0）的角用面法线。"""
+    me = o.data
+    at = me.attributes.get(NORMAL_ATTR)
+    if at is None:
+        return 0
+    N = np.empty(len(me.loops) * 3)
+    at.data.foreach_get("vector", N)
+    N = N.reshape(-1, 3)
+    if flip is not None:
+        for p in me.polygons:
+            if flip(p.center):
+                N[p.loop_start:p.loop_start + p.loop_total, 1] *= -1
+    L = np.linalg.norm(N, axis=1)
+    bad = L < 0.5
+    if bad.any():
+        FN = np.empty(len(me.polygons) * 3)
+        me.polygons.foreach_get("normal", FN)
+        FN = FN.reshape(-1, 3)
+        own = np.empty(len(me.loops), int)
+        for p in me.polygons:
+            own[p.loop_start:p.loop_start + p.loop_total] = p.index
+        N[bad] = FN[own[bad]]
+        L[bad] = 1.0
+    N = N / L[:, None]
+    for p in me.polygons:
+        p.use_smooth = True
+    me.normals_split_custom_set([tuple(n) for n in N])
+    return int(bad.sum())
+
+
+def mark_hard(o, angle=25.0):
+    """线条（L2 边标记）只取“硬棱”：Tripo 网格两侧面的角法线在这条边上断开（夹角 > angle）的边；我们自己建的件
+    （没有自定义法线）取 use_edge_sharp 的边。Freestyle 的折痕检测在三十万面的起稿网格上满身都是线，不用。返回标记边数。"""
+    me = o.data
+    n_e = len(me.edges)
+    if not n_e:
+        return 0
+    flags = np.zeros(n_e, bool)
+    if me.has_custom_normals:
+        N = np.empty(len(me.loops) * 3)
+        me.corner_normals.foreach_get("vector", N)
+        N = N.reshape(-1, 3)
+        LV = np.empty(len(me.loops), int)
+        me.loops.foreach_get("vertex_index", LV)
+        LE = np.empty(len(me.loops), int)
+        me.loops.foreach_get("edge_index", LE)
+        own = np.empty(len(me.loops), int)
+        for p in me.polygons:
+            own[p.loop_start:p.loop_start + p.loop_total] = p.index
+        corner = {}
+        for li in range(len(LV)):
+            corner[(own[li], LV[li])] = li
+        ef = {}
+        for li in range(len(LE)):
+            ef.setdefault(LE[li], set()).add(own[li])
+        cth = math.cos(math.radians(angle))
+        EV = np.empty(n_e * 2, int)
+        me.edges.foreach_get("vertices", EV)
+        EV = EV.reshape(-1, 2)
+        for e, fs in ef.items():
+            if len(fs) != 2:
+                continue
+            fa, fb = fs
+            for v in EV[e]:
+                if N[corner[(fa, v)]] @ N[corner[(fb, v)]] < cth:
+                    flags[e] = True
+                    break
+    else:
+        sh = me.attributes.get("sharp_edge")
+        if sh is not None:
+            sh.data.foreach_get("value", flags)
+    seam = np.zeros(n_e, bool)
+    me.edges.foreach_get("use_seam", seam)
+    flags |= seam
+    at = me.attributes.get("freestyle_edge") or me.attributes.new("freestyle_edge", "BOOLEAN", "EDGE")
+    at.data.foreach_set("value", flags)
+    return int(flags.sum())
 
 
 def verts(o):
@@ -49,10 +150,20 @@ def set_verts(o, V):
     o.data.update()
 
 
+def flat(M):
+    return [float(x) for r in M for x in r]
+
+
+def unflat(L):
+    return Matrix([L[0:4], L[4:8], L[8:12], L[12:16]])
+
+
 def transform_all(objs, M):
     for o in objs:
         o.data.transform(M)
         o.data.update()
+        if "xform" in o:
+            o["xform"] = flat(M @ unflat(list(o["xform"])))
 
 
 # 零件按位置认：(名字, 判别函数(中心 c, 包围盒 lo, hi, 全身高 H))，本作坐标、缩放后
@@ -154,6 +265,8 @@ def mirror_half(o, keep_negative=True):
     bm.to_mesh(o.data)
     bm.free()
     o.data.update()
+    keep = (lambda c: c.y > 0) if keep_negative else (lambda c: c.y < 0)
+    restore_normals(o, flip=keep)
 
 
 def mirror_copy(src, dst):
@@ -164,12 +277,13 @@ def mirror_copy(src, dst):
     old = dst.data
     dst.data = me
     bpy.data.meshes.remove(old)
+    restore_normals(dst, flip=lambda c: True)
 
 
 def outside_parts(orig, sym, side=1, core_d=0.012, grow_d=0.002, grow=6, min_faces=150, exclude=()):
     """orig（对称前的网格）里在 side 一侧（y·side > 0.02）、离对称后的表面 sym 很远（> core_d，软管与接口离服装 2～4 cm，
     左右不对称的织带只差 1 cm 左右）的面做核，再沿网格往外长 grow 圈（只长到离面 > grow_d 的地方，把软管根部带上），
-    按连通块取出，面数够大的块才要；exclude：[(lo, hi)] 包围盒内的不要。返回 (块列表 [(顶点, 面)], 每点带符号距离)。"""
+    按连通块取出，面数够大的块才要；exclude：[(lo, hi)] 包围盒内的不要。返回 (块列表 [orig 的面号], 每点带符号距离)。"""
     import bmesh
     from mathutils.bvhtree import BVHTree
 
@@ -200,7 +314,8 @@ def outside_parts(orig, sym, side=1, core_d=0.012, grow_d=0.002, grow=6, min_fac
                         nxt[i] = True
         sel = nxt
     out_v = sel
-    keep = [f for f in F if all(out_v[i] for i in f)]
+    keep_i = [k for k, f in enumerate(F) if all(out_v[i] for i in f)]
+    keep = [F[k] for k in keep_i]
     # 连通块
     parent = {}
 
@@ -216,16 +331,30 @@ def outside_parts(orig, sym, side=1, core_d=0.012, grow_d=0.002, grow=6, min_fac
             if ra != rb:
                 parent[ra] = rb
     comps = {}
-    for f in keep:
-        comps.setdefault(find(f[0]), []).append(f)
-    out = []
-    for fs in comps.values():
-        if len(fs) < min_faces:
-            continue
-        ids = sorted({i for f in fs for i in f})
-        remap = {v: k for k, v in enumerate(ids)}
-        out.append((V[ids], [[remap[i] for i in f] for f in fs]))
+    for k in keep_i:
+        comps.setdefault(find(F[k][0]), []).append(k)
+    out = [fs for fs in comps.values() if len(fs) >= min_faces]
     return out, sd
+
+
+def extract_faces(src, face_ids, name):
+    """src 的一部分面复制成新对象（保住角属性，所以法线能写回）。"""
+    import bmesh
+
+    o = src.copy()
+    o.data = src.data.copy()
+    o.name = name
+    o.data.name = name
+    bpy.context.scene.collection.objects.link(o)
+    want = set(face_ids)
+    bm = bmesh.new()
+    bm.from_mesh(o.data)
+    bm.faces.ensure_lookup_table()
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.index not in want], context="FACES")
+    bm.to_mesh(o.data)
+    bm.free()
+    restore_normals(o)
+    return o
 
 
 def build_body(props, path=DRAFT_BODY):
@@ -237,7 +366,10 @@ def build_body(props, path=DRAFT_BODY):
     parts = classify_parts(objs)
     log = {"source": os.path.relpath(path, ROOT), "scale": round(s, 5)}
     log["straighten"] = stand_straight(objs, [o for k, o in parts.items() if k not in ("helmet", "face")])
-    bpy.data.objects.remove(parts.pop("helmet"))  # 换成 Smart Mesh 那顶（helmet_draft.py）
+    for o in objs:
+        keep_normals(o)
+    log["helmet_src"] = parts["helmet"]["src_name"]  # 原样对照时把它藏掉
+    bpy.data.objects.remove(parts.pop("helmet"))  # 换成 Smart Mesh 修正版（helmet_tripo.py）
     torso = parts["torso"]
     orig = torso.copy()
     orig.data = torso.data.copy()
@@ -246,14 +378,17 @@ def build_body(props, path=DRAFT_BODY):
     for a in ("uarm", "farm", "hand", "thigh", "shin", "boot"):
         mirror_copy(parts[f"{a}.r"], parts[f"{a}.l"])
     comps, _ = outside_parts(orig, torso, side=1)
+    att = [extract_faces(orig, fs, f"xz.suit.hose{k}") for k, fs in enumerate(comps)]
     bpy.data.objects.remove(orig)
-    att = [geo.obj_from_arrays(f"xz.suit.hose{k}", V, F, "hose", props) for k, (V, F) in enumerate(comps)]
-    log["attachments"] = [len(F) for _, F in comps]
+    for o in att:
+        o.data.materials.clear()
+        o.data.materials.append(geo.material("hose"))
+        for kk, v in props.items():
+            o[kk] = v
+    log["attachments"] = [len(fs) for fs in comps]
     for k, o in parts.items():
         o.data.materials.clear()
         o.data.materials.append(geo.material("skin" if k == "face" else "suit"))
         for kk, v in props.items():
             o[kk] = v
-        for p in o.data.polygons:
-            p.use_smooth = True
     return parts, att, log

@@ -164,7 +164,7 @@ def box(name, centre, size, R, mat, props=None, bevel=0.0):
     M = Matrix.Translation(Vector(centre)) @ R.to_4x4() @ S
     bm.transform(M)
     if bevel > 0:
-        bmesh.ops.bevel(bm, geom=bm.edges[:], offset=bevel, segments=2, profile=0.5, affect="EDGES", clamp_overlap=True)
+        bmesh.ops.bevel(bm, geom=bm.edges[:], offset=bevel, segments=1, profile=0.5, affect="EDGES", clamp_overlap=True)
     o = obj_from_bm(name, bm, mat, props, smooth=False)
     mark_sharp(o, 40)
     return o
@@ -177,7 +177,7 @@ def hull(name, pts, mat, props=None, bevel=0.0):
     bmesh.ops.dissolve_limit(bm, angle_limit=math.radians(1.0), verts=bm.verts, edges=bm.edges)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     if bevel > 0:
-        bmesh.ops.bevel(bm, geom=bm.edges[:], offset=bevel, segments=2, profile=0.5, affect="EDGES", clamp_overlap=True)
+        bmesh.ops.bevel(bm, geom=bm.edges[:], offset=bevel, segments=1, profile=0.5, affect="EDGES", clamp_overlap=True)
     o = obj_from_bm(name, bm, mat, props, smooth=False)
     mark_sharp(o, 40)
     return o
