@@ -8,6 +8,8 @@ export CHROME_PATH="$PWD/scripts/chrome.sh"
 OUT="${1:-review/20261015-Z1-replica}"
 # LOOKS="B" sh scripts/replica-review.sh：只重出 B 画法的图（A 不变时）
 LOOKS="${LOOKS:-A B}"
+# EXTERIOR_ONLY=1：只出外观（跳过 K1 剖视叠图与剖视 / 驾驶员特写；剖视在软件 GL 里很慢）
+EXTERIOR_ONLY="${EXTERIOR_ONLY:-0}"
 mkdir -p "$OUT"
 S="timeout -k 5 300 node src/figure/shots.mjs $OUT"
 ON="__arcseq.set('power',1);__arcseq.set('chine',1);__arcseq.set('chine.sweep',1);__arcseq.set('sensor',1)"
@@ -16,9 +18,9 @@ K1=refs/layout/K1_驾驶舱侧剖.png
 
 # 1. 叠图（REFERENCE / AFTER / 50% OVERLAY）：外形对 C2 三视图（含机头尖放大），剖视对 K1；A、B 两种画法各一份
 SPEC="$OUT/overlay-spec.json"
-python3 - "$SPEC" "$C2" "$K1" "$LOOKS" <<'PY'
+python3 - "$SPEC" "$C2" "$K1" "$LOOKS" "$EXTERIOR_ONLY" <<'PY'
 import json, sys
-spec, c2, k1, looks = sys.argv[1:5]
+spec, c2, k1, looks, ext_only = sys.argv[1:6]
 tip, s76 = [9.5, 0, 1.65], [1.9, 0, 1.65]
 views = [
     ("c2-top", c2, [60, 280, 640, 500], 90, 90, [[tip, [89, 390.5]], [s76, [590.6, 390.5]]], 3, 3, None),
@@ -34,6 +36,8 @@ for look, page in (("A", "dist/drawing.html"), ("B", "dist/index.html")):
     if look not in looks.split():
         continue
     for name, ref, crop, head, elev, anchors, scale, zoom, pre in views:
+        if ext_only == "1" and name == "k1-cut":
+            continue
         d = {"name": f"{name}-{look}", "refName": name, "ref": ref, "crop": crop, "heading": head, "elevation": elev, "mode": "lines", "scale": scale, "zoom": zoom, "page": page, "anchors": anchors}
         if pre == "@focus":
             d["after"] = "__arcseq.focus([9.0,0,1.66],7)"
@@ -66,12 +70,12 @@ for L in A:dist/drawing.html B:dist/index.html; do
   # 外观复刻细节（R4）：大气数据探头、静压孔、天线、姿控格栅、口盖（凹缝 + 紧固件）
   $S --page $P --mode lines --prefix CLOSE-$T --views 60 --elevation 6 --tag 4x-details --scale 2 --pre "$ON;__arcseq.view(60,'lines',6);__arcseq.focus([7.9,0,1.55],4)"
   $S --page $P --mode lines --prefix CLOSE-$T --views 30 --elevation 30 --tag 6x-hatch --scale 2 --pre "__arcseq.view(30,'lines',30);__arcseq.focus([5.9,0.1,2.3],6)"
-  $S --page $P --mode lines --prefix CLOSE-$T --views 90 --elevation 0 --tag 4x-cockpit-cut --scale 2 --pre "__arcseq.set('sensor',1);__arcseq.cutaway(true).then(()=>{__arcseq.view(90,'lines',0);__arcseq.focus([3.35,0,2.2],3.2)})"
-  $S --page $P --mode lines --prefix CLOSE-$T --views 100 --elevation 25 --tag 7x-pilot --scale 2 --pre "__arcseq.cutaway(true).then(()=>{__arcseq.view(100,'lines',25);__arcseq.focus([3.3,0,2.3],7)})"
-  $S --page $P --mode lines --prefix CLOSE-$T --views 60 --elevation 18 --tag 10x-pilot-front --scale 2 --pre "__arcseq.cutaway(true).then(()=>{__arcseq.view(60,'lines',18);__arcseq.focus([3.2,0,2.45],10)})"
+  [ "$EXTERIOR_ONLY" = 1 ] || $S --page $P --mode lines --prefix CLOSE-$T --views 90 --elevation 0 --tag 4x-cockpit-cut --scale 2 --pre "__arcseq.set('sensor',1);__arcseq.cutaway(true).then(()=>{__arcseq.view(90,'lines',0);__arcseq.focus([3.35,0,2.2],3.2)})"
+  [ "$EXTERIOR_ONLY" = 1 ] || $S --page $P --mode lines --prefix CLOSE-$T --views 100 --elevation 25 --tag 7x-pilot --scale 2 --pre "__arcseq.cutaway(true).then(()=>{__arcseq.view(100,'lines',25);__arcseq.focus([3.3,0,2.3],7)})"
+  [ "$EXTERIOR_ONLY" = 1 ] || $S --page $P --mode lines --prefix CLOSE-$T --views 60 --elevation 18 --tag 10x-pilot-front --scale 2 --pre "__arcseq.cutaway(true).then(()=>{__arcseq.view(60,'lines',18);__arcseq.focus([3.2,0,2.45],10)})"
   # A/B 3/4 斜视（金属质感在斜视里才读得出）：外形通电、剖视各一张
   $S --page $P --mode lines --prefix OBLIQUE-$T --views 30 --elevation 25 --tag ext --scale 2 --pre "$ON;__arcseq.view(30,'lines',25);__arcseq.focus([5.2,0,1.9],1.7)"
-  $S --page $P --mode lines --prefix OBLIQUE-$T --views 60 --elevation 22 --tag cut --scale 2 --pre "__arcseq.set('sensor',1);__arcseq.cutaway(true).then(()=>{__arcseq.view(60,'lines',22);__arcseq.focus([5.0,0,1.9],1.8)})"
+  [ "$EXTERIOR_ONLY" = 1 ] || $S --page $P --mode lines --prefix OBLIQUE-$T --views 60 --elevation 22 --tag cut --scale 2 --pre "__arcseq.set('sensor',1);__arcseq.cutaway(true).then(()=>{__arcseq.view(60,'lines',22);__arcseq.focus([5.0,0,1.9],1.8)})"
 done
 
 # 4. 三张目标帧（A、B）与 300 px 缩略图

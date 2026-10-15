@@ -15,6 +15,8 @@ def load(name):
 
 
 def labelled(im, text, width=None):
+    if im is None:  # EXTERIOR_ONLY=1 时没有剖视 / 驾驶员图
+        return None
     if width and im.width != width:
         im = im.resize((width, round(im.height * width / im.width)), Image.LANCZOS)
     out = Image.new("RGB", (im.width, im.height + 40), BG)

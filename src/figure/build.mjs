@@ -145,7 +145,7 @@ const MATERIALS = {
 for (const k of ["frame", "metal", "chrome", "rubber", "iris", "vermilion", "stand", "structure", "avionics", "panel", "pipe", "cable", "tank", "screen", "seat", "suit", "pad", "strap", "visor", "inscription", "helmet", "section", "label", "hazard", "backwall", "liner"]) MATERIALS[k] = { tones: k, shade: ["metal", "chrome", "rubber", "pipe", "cable", "tank", "helmet", "suit", "pad", "strap", "visor"].includes(k) ? "round" : "facet" };
 /** B 画法的材质参数：[金属度, 粗糙度, 基色增益]（基色取色板第 4 档，换到线性空间再乘增益）。 */
 const PBR = {
-  hull: [0.62, 0.34, 3.2], belly: [0.45, 0.45, 3.4], carbon: [0.2, 0.35, 2.4], glass: [0.0, 0.05, 1.0], interior: [0.3, 0.55, 4.0], sensor: [0.0, 0.08, 1.6],
+  hull: [0.8, 0.34, 0.75], belly: [0.6, 0.4, 2.4], carbon: [0.2, 0.35, 2.4], glass: [0.0, 0.05, 1.0], interior: [0.3, 0.55, 4.0], sensor: [0.0, 0.08, 1.6],
   void: [0.2, 0.6, 1.0], round: [0.5, 0.45, 3.0], frame: [0.7, 0.35, 3.2], metal: [0.85, 0.3, 4.5], chrome: [1.0, 0.12, 3.5], rubber: [0.0, 0.8, 2.2],
   iris: [0.75, 0.32, 2.4], vermilion: [0.2, 0.4, 1.7], stand: [0.5, 0.5, 2.0], structure: [0.75, 0.36, 3.1], avionics: [0.45, 0.42, 3.6], panel: [0.4, 0.45, 2.4],
   pipe: [0.85, 0.3, 3.45], cable: [0.1, 0.65, 3.0], tank: [0.85, 0.28, 4.5], screen: [0.0, 0.1, 1.5], seat: [0.25, 0.6, 4.5], suit: [0.05, 0.72, 1.3], pad: [0.08, 0.62, 1.7], strap: [0.05, 0.75, 3.0], visor: [0.6, 0.15, 2.0], inscription: [0.2, 0.5, 1.6],
