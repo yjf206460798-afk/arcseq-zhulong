@@ -216,7 +216,7 @@
       for (const [kind, data] of Object.entries(geo)) {
         if (!data.pos.length) continue;
         const key = `${keyOf(part)}|${kind}|${material.uuid}|${part.show ?? ""}|${part.cut ? 1 : 0}|${part.section ?? ""}|${part.opacity ?? 1}`;
-        if (!buckets.has(key)) buckets.set(key, { joint: keyOf(part), glow: !!part.glow, show: part.show ?? null, cut: !!part.cut, section: part.section ?? "cap", opacity: part.opacity ?? 1, material: kind === "recess" ? recess(material) : material, ...newBucket(), ranges: [] });
+        if (!buckets.has(key)) buckets.set(key, { joint: keyOf(part), glow: !!part.glow, module: part.module ?? null, show: part.show ?? null, cut: !!part.cut, section: part.section ?? "cap", opacity: part.opacity ?? 1, material: kind === "recess" ? recess(material) : material, ...newBucket(), ranges: [] });
         const b = buckets.get(key);
         b.ranges.push([b.pos.length / 3, (b.pos.length + data.pos.length) / 3, index]);
         for (const q of ["pos", "nor", "mark", "depth", "ao", "glow", "uv"]) for (let i = 0; i < data[q].length; i++) b[q].push(data[q][i]);
@@ -237,6 +237,8 @@
       if (b.opacity < 1) mesh.renderOrder = 1;
       mesh.userData.ranges = b.ranges;
       mesh.userData.show = b.show;
+      mesh.userData.module = b.module;
+      mesh.userData.glow = b.glow;
       groupObj(b.joint).add(mesh);
       pickables.push(mesh);
       if (b.glow) glowMeshes.push(mesh);

@@ -212,8 +212,11 @@
       shared.uGlowPass.value = 1;
       lineShared.uGlowPass.value = 1;
       hiddenInGlow.length = 0;
+      // 线层（R4 起每层一个材质、一个实例网格）除 accent 外都不进发光通道；按需模块（剖视内部）里不发光的件也不画——
+      // 它们只为挡住后面的发光件，剖视里发光只有屏幕与平视显示器（通电 0.1～0.3），漏一点光晕看不出，却省掉一半 draw call
+      const plainLines = new Set(lineLayers.filter((l) => !l.accent).map((l) => l.mesh));
       scene.traverseVisible((o) => {
-        if ((o.isSprite || o === shadow || o.parent === deckLineGroup || (o.material?.blending === THREE.CustomBlending && o.material.uniforms?.uPc) || (o.material?.length && !accentLayers.some((l) => l.mesh === o))) && o.visible) hiddenInGlow.push(o);
+        if ((o.isSprite || o === shadow || o.parent === deckLineGroup || (o.material?.blending === THREE.CustomBlending && o.material.uniforms?.uPc) || plainLines.has(o) || (o.userData.module && !o.userData.glow)) && o.visible) hiddenInGlow.push(o);
       });
       for (const o of hiddenInGlow) o.visible = false;
       renderer.setClearColor(0x000000, 1);
