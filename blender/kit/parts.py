@@ -143,7 +143,7 @@ def _cuboid(bm, centre, size, rot=None):
     bmesh.ops.convex_hull(bm, input=vs)
 
 
-def box(name, centre, size, rot=None, material="avionics", face="+x", panel=True, handles=True, plugs=4, props=None, bevel=0.012, split=0, label=False, corner_bolts=False, grille=0):
+def box(name, centre, size, rot=None, material="avionics", face="+x", panel=True, handles=True, plugs=4, props=None, bevel=0.012, split=0, label=False, corner_bolts=False, grille=0, ears=True):
     """设备箱：size = (长 x, 宽 y, 高 z)；face 为正面朝向（"+x" "-x" "+y" "-y" "+z"）。
     正面：内凹 8 mm 的面板（四周留 14% 边；split=n 时横向分成 n+1 扇门）、两只把手（细横杆 + 两个支脚）、下沿一排插头（圆柱）；
     label：左上角一块浅色铭牌；corner_bolts：四角螺栓；grille=n：面板下部 n 条横向散热格栅。"""
@@ -184,9 +184,19 @@ def box(name, centre, size, rot=None, material="avionics", face="+x", panel=True
             o = new_object(name + f".panel{k}", bm, "panel", props)
             extra.append((o, finish(o, bevel=0.002)))
     if label and min(w1, w2) > 0.05:
-        c = fc + side * (-ws * 0.2) + up * wu * 0.24 + n * 0.0025
-        pts = [c + side * a * ws * 0.13 + up * b * wu * 0.06 + n * d for a in (-1, 1) for b in (-1, 1) for d in (-0.001, 0.0008)]
+        # 小铭牌：约 4 × 1.5 cm，左上角（不抢眼：小、低饱和）
+        lw, lh = min(0.045, ws * 0.12), min(0.016, wu * 0.06)
+        c = fc + side * (-ws * 0.28 + lw) + up * (wu * 0.3) + n * 0.0025
+        pts = [c + side * a * lw + up * b * lh + n * d for a in (-1, 1) for b in (-1, 1) for d in (-0.001, 0.0008)]
         extra.append(hull(name + ".label", pts, "label", {**(props or {}), "lineLevel": "secondary"}, bevel=0.0))
+    if ears and min(w1, w2) > 0.05:
+        # 固定耳：底边两侧各一片带螺栓的耳板（往两侧伸出 2.5 cm），把箱子固定到托架 / 框上
+        bottom = centre - up * wu / 2
+        for a in (-1, 1):
+            base = bottom + side * a * (ws / 2 + 0.0125) - n * (size[i] * 0.25)
+            pts = [base + side * da + n * dn + up * dz for da in (-0.0125, 0.0125) for dn in (-0.02, 0.02) for dz in (0.0, 0.006)]
+            extra.append(hull(name + f".ear{'lr'[a > 0]}", pts, material, props, bevel=0.0015))
+            extra.append(bolts(name + f".ear{'lr'[a > 0]}.bolt", base + up * 0.006, base + up * 0.006, 1, 0.0045, up, props=props))
     if corner_bolts and min(w1, w2) > 0.05:
         rb = max(0.0035, min(ws, wu) * 0.025)
         for b in (-1, 1):
@@ -264,13 +274,16 @@ def clamp(name, pos, axis, r, material="metal", props=None):
     return obj, finish(obj, bevel=0.001, curved=True)
 
 
-def frame(name, ring, depth=0.04, width=0.06, material="structure", props=None):
-    """框（舱壁环）：截面多边形 ring（同一 x 的世界坐标点，逆时针）沿内法线内缩 width，前后厚 depth。凹的环拆成每边一块凸板。"""
+def frame(name, ring, depth=0.04, width=0.06, material="structure", props=None, skip=()):
+    """框（舱壁环）：截面多边形 ring（同一 x 的世界坐标点，逆时针）沿内法线内缩 width，前后厚 depth。凹的环拆成每边一块凸板；
+    skip：不做的边（序号 k 连 ring[k] → ring[k+1]，开口框用）。"""
     ring = [Vector(p) for p in ring]
     c = sum(ring, Vector()) / len(ring)
     out = []
     n = len(ring)
     for k in range(n):
+        if k in skip:
+            continue
         a, b = ring[k], ring[(k + 1) % n]
         ai = a + (c - a).normalized() * width
         bi = b + (c - b).normalized() * width
@@ -465,4 +478,19 @@ def bracket(name, base, normal, along, size=(0.06, 0.05, 0.04), t=0.005, materia
     pts = [base + d * x + s * y + n * z for x in (-L / 2, L / 2) for y in (W / 2 - t, W / 2) for z in (0, H)]
     out.append(hull(f"{name}.leg", pts, material, props, bevel=0.0012))
     out.append(bolts(f"{name}.bolts", base - d * L * 0.3 + n * t - s * W * 0.1, base + d * L * 0.3 + n * t - s * W * 0.1, 2, max(0.003, W * 0.12), n, props=props))
+    return out
+
+
+def drum(name, a, b, r, bands=2, material="metal", props=None, sides=20):
+    """圆柱件（电机、缸体、蓄压器）：筒身 + 两端端盖（略大一圈的薄盘 + 中心凸台）+ bands 道箍带。返回 [(obj, lines)…]。"""
+    a, b = Vector(a), Vector(b)
+    w = (b - a).normalized()
+    L = (b - a).length
+    out = [cylinder(name, a + w * 0.006, b - w * 0.006, r, sides, material, props, bevel=min(0.004, r * 0.15))]
+    for k, (p, d) in enumerate(((a, w), (b, -w))):
+        out.append(cylinder(f"{name}.cap{k}", p, p + d * 0.008, r * 1.06, sides, "metal", props, bevel=0.0015))
+        out.append(cylinder(f"{name}.boss{k}", p - d * 0.006, p + d * 0.002, r * 0.35, 12, "chrome", props, bevel=0.001))
+    for k in range(bands):
+        c = a.lerp(b, (k + 1) / (bands + 1))
+        out.append(cylinder(f"{name}.band{k}", c - w * min(0.008, L * 0.04), c + w * min(0.008, L * 0.04), r * 1.04, sides, "metal", props, bevel=0.001))
     return out

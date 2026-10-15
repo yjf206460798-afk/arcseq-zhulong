@@ -377,12 +377,13 @@
     const slots = new Map();
     const made = [];
     // lineLevel "secondary"：这一层所有边一律降为次级线（细密的重复件：鳞片瓦、虹膜遮片），单独一层
-    const slot = (group, cap = 0, show = null, cut = false) => {
-      const key = `${group}|${cap}|${show ?? ""}|${cut ? 1 : 0}`;
-      if (!slots.has(key)) slots.set(key, { group, cap, show, cut, parts: [], seams: [] });
+    const slot = (group, cap = 0, show = null, cut = false, glass = false) => {
+      const key = `${group}|${cap}|${show ?? ""}|${cut ? 1 : 0}|${glass ? 1 : 0}`;
+      if (!slots.has(key)) slots.set(key, { group, cap, show, cut, glass, parts: [], seams: [] });
       return slots.get(key);
     };
-    for (const part of parts) slot(keyOf(part), part.lineLevel === "secondary" ? LINE.secondary : part.lineLevel === "structure" ? LINE.structure : 0, part.show ?? null, !!part.cut).parts.push(part);
+    // 玻璃件的线单独一层（剖视时转青色）
+    for (const part of parts) slot(keyOf(part), part.lineLevel === "secondary" ? LINE.secondary : part.lineLevel === "structure" ? LINE.structure : 0, part.show ?? null, !!part.cut, !!part.glass).parts.push(part);
     const accents = new Map();
     for (const seam of seams ?? []) {
       const key = groupKey(seam.joint);
@@ -392,7 +393,7 @@
         accents.get(k).seams.push(seam);
       } else slot(key, 0, seam.show ?? null, seam.cut ?? true).seams.push(seam);
     }
-    for (const [key, { group, cap, show, cut, parts: ps, seams: ss }] of slots) {
+    for (const [key, { group, cap, show, cut, glass, parts: ps, seams: ss }] of slots) {
       const segs = buildLines(ps, ss);
       if (!segs.kind.length) continue;
       const layer = lineLayer(segs, groupObj(group));
@@ -400,6 +401,7 @@
       layer.cap = cap;
       layer.show = show;
       layer.cut = cut;
+      layer.glass = glass;
       groupLines.set(key, layer);
       airLayers.push(layer);
       made.push(layer);

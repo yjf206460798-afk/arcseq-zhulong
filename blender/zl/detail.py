@@ -11,7 +11,7 @@
 """
 import numpy as np
 
-from .nose import APEX_S, K, S_END, S_FLAT, Z_TIP, ZONES
+from .nose import APEX_S, HEX_H, HEX_W, K, S_END, S_FLAT, Z_TIP, ZONES
 from .util import XN
 
 FONT = "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"
@@ -186,27 +186,29 @@ def paint(P, N, A, meta):
     r += np.where(valid, (h - 0.5) * 0.06 * 0.5, 0)  # r 是 0.5 中性：±3% → ±0.015
     rough += np.where(valid, (h - 0.5) * 0.1, 0)
 
-    # —— 腹底鳞片（平腹底，按 ZONES 分区；下切面是几何样片，不画）——
+    # —— 腹底鳞片（平腹底，与下切面的几何瓦同一套蜂窝：W × H、奇数列错开半行，按 ZONES 分区；下切面是几何瓦，不画）——
     belly = valid & (fac == 3) & (s > ZONES[0][0])
     vb = R["R3"][0] - np.abs(y)  # 到腹缘的距离
+    W, H = HEX_W, HEX_H
     best = np.full(shape, 9.0, np.float32)
     zone_edge = np.full(shape, 9.0, np.float32)
-    for (s0, s1, p, w) in ZONES:
+    for (s0, s1) in ZONES:
         inz = belly & (s >= s0) & (s < s1)
         if not inz.any():
             continue
         zone_edge = np.where(inz, np.minimum(s - s0, s1 - s), zone_edge)
-        i0 = np.round((s - s0) / p)
-        for di in (-1, 0, 1):
-            i = i0 + di
-            sc = s0 + i * p
-            off = np.where(np.mod(i, 2) == 1, w / 2, 0.0)
-            j = np.round((vb - off) / w)
+        c0 = np.round((s - s0 - W / 2) / (0.75 * W))
+        for dc in (-1, 0, 1):
+            c = c0 + dc
+            sc = s0 + W / 2 + c * 0.75 * W
+            off = np.where(np.mod(c, 2) == 1, H / 2, 0.0)
+            j0 = np.round((vb - off) / H)
             for dj in (-1, 0, 1):
-                vc = off + (j + dj) * w
-                d = np.abs(s - sc) / p + np.abs(vb - vc) / (w / 2)
-                best = np.where(inz, np.minimum(best, d), best)
-    edge = np.clip((best - 0.9) / 0.1, 0, 1)
+                vc = off + (j0 + dj) * H
+                du, dv = np.abs(s - sc), np.abs(vb - vc)
+                n = np.maximum(dv / (H / 2), du / (W / 2) + dv / H)  # 六边形“范数”：边上为 1
+                best = np.where(inz, np.minimum(best, n), best)
+    edge = np.clip((best - 0.88) / 0.12, 0, 1)
     gap = np.clip(1 - zone_edge / 0.008, 0, 1)  # 分区缝 1.5 cm
     r = np.where(belly, r - 0.12 * edge - 0.2 * gap, r)
     rough = np.where(belly, rough + 0.08 * edge, rough)

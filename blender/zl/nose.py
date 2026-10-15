@@ -194,7 +194,8 @@ def eye():
     bmesh.ops.translate(bm, verts=bm.verts, vec=c)
     # 只留机身前端面以前的部分（断口藏在密封圈与内圈台阶环后面）：后半球贴着蒙皮内侧，留着它的轮廓线会透过 2 cm 的线条偏移露出来
     bmesh.ops.delete(bm, geom=[v for v in bm.verts if XN - v.co.x > S_FRONT - 0.002], context="VERTS")
-    o = new_object("sensor.ball", bm, "sensor", {"skin": "sensor.ball", "glow": {"key": "sensor", "color": "#ffb060"}})
+    # 通电只透出一点暖琥珀微光（DESIGN：“烛”），发光色压暗，满功率也不发白
+    o = new_object("sensor.ball", bm, "sensor", {"skin": "sensor.ball", "glow": {"key": "sensor", "color": "#9a5218"}})
     EDGES[o.name] = finish(o, bevel=0, curved=True)
     out.append(o)
     # 内透镜：前极一枚凸透镜（虹膜张开时看得见），后面一圈镜筒
@@ -300,25 +301,32 @@ def brow():
     return new_object("brow", bm, "hull")
 
 
+SLOT_DZ = 0.04  # 收纳槽中心离屋面的高度（眉骨顶比屋面高 8～10 cm）
+
+
 def slot_cutter():
-    """收纳槽：眉骨后端面上一道扁槽（高 2.5 cm、宽 0.56 m、深 0.3 m），遮光盾从这里滑出。"""
+    """收纳槽：眉骨后端面上一道扁槽（高 2.5 cm、半宽 0.28 m、深 0.3 m），顺着屋面坡度做成帐篷形（左右两半各一块凸体）。"""
     s2 = BROW[2]
-    z = spine_z(s2) + 0.035
-    pts = [at(s, y, z + dz) for s in (s2 + 0.05, s2 - 0.3) for y in (0.28, -0.28) for dz in (-0.0125, 0.0125)]
-    bm = bmesh.new()
-    vs = [bm.verts.new(p) for p in pts]
-    bmesh.ops.convex_hull(bm, input=vs)
-    return new_object("cut.slot", bm)
+    out = []
+    for side in (1, -1):
+        pts = [at(s, y * side, roof_z(s, y) + SLOT_DZ + dz) for s in (s2 + 0.05, s2 - 0.3) for y in (0.0, 0.28) for dz in (-0.0125, 0.0125)]
+        bm = bmesh.new()
+        vs = [bm.verts.new(p) for p in pts]
+        bmesh.ops.convex_hull(bm, input=vs)
+        out.append(new_object(f"cut.slot.{'lr'[side < 0]}", bm))
+    return out
 
 
 def shield():
-    """遮光盾（收起）：槽里露出 3 cm 的前缘；Z4 做滑出盖住座舱盖的机构。"""
+    """遮光盾（收起）：两片帐篷形钛板（左右各一，中线对接），槽里露出 3 cm 的前缘；Z4 做沿滑轨滑出盖住座舱盖的机构。"""
     s2 = BROW[2]
-    z = spine_z(s2) + 0.035
-    pts = [at(s, y, z + dz) for s in (s2 - 0.03, s2 - 0.28) for y in (0.26, -0.26) for dz in (-0.006, 0.006)]
-    o, l = hull("shield", pts, "metal", {"skin": "shield", "joint": "shield"}, bevel=0.002)
-    EDGES[o.name] = l
-    return o
+    out = []
+    for side in (1, -1):
+        pts = [at(s, y * side, roof_z(s, y) + SLOT_DZ + dz) for s in (s2 - 0.03, s2 - 0.28) for y in (0.0, 0.26) for dz in (-0.006, 0.006)]
+        o, l = hull(f"shield.{'lr'[side < 0]}", pts, "metal", {"skin": "shield", "joint": "shield"}, bevel=0.002)
+        EDGES[o.name] = l
+        out.append(o)
+    return out
 
 
 def fairing():
@@ -597,45 +605,57 @@ def inlay():
     return out
 
 
-# —— 鳞片瓦：下切面按结构框分区，每区一套行距；腹底平面走贴图 ——————————————————
-ZONES = [(0.7, 1.25, 0.05, 0.09), (1.25, 2.05, 0.06, 0.11), (2.05, 3.1, 0.07, 0.125), (3.1, 3.9, 0.075, 0.135), (3.9, 4.75, 0.08, 0.14), (4.75, 6.95, 0.085, 0.15), (6.95, S_END, 0.085, 0.15)]
+# —— 鳞片瓦：下切面上的扁六边形蜂窝（C2 侧视实测：沿机身长 0.24 m、行距 0.15 m），按结构框分区 ——————————————
+HEX_W, HEX_H = 0.236, 0.15  # 六边形沿机身的对角长、跨切面的对边距（两头尖、上下平）
+ZONES = [(0.65, 1.5), (1.5, 2.2), (2.2, 3.1), (3.1, 3.9), (3.9, 4.84), (4.84, 6.0), (6.0, 6.95), (6.95, S_END)]
+
+
+def slant(s):
+    """下切面在站位 s 的斜宽（棱线 R2 到腹缘 R3）。"""
+    R = ring(s)
+    return math.hypot(R["R2"][0] - R["R3"][0], R["R2"][1] - R["R3"][1])
 
 
 def tiles():
-    """每片：菱形前尖 + 后端圆弧（尖朝后、圆端朝后错叠），后缘翘起 4 mm；区与区之间留 1.5 cm 的分区缝（落在结构框上）。"""
+    """C2 的鳞片是一张连续的蜂窝：一套全局格子（列沿机身每 0.75·W 一列，奇数列错开半行），从光窗后环缝铺到段尾，
+    在棱线、腹缘和段两端处被裁开（裁剩不到三成的不要）。瓦缝 1.2 cm；每片是 5 mm 厚的扁六棱柱（下表面埋进蒙皮 2 mm）。
+    分区（ZONES，落在结构框上）只体现在腹底细节贴图里，下切面跟 C2 一样不断开。"""
     out = []
     count = 0
+    W, H = HEX_W, HEX_H
+    g = 0.006
+    hexagon = [(W / 2 - g * 1.15, 0.0), (W / 4 - g * 0.58, H / 2 - g), (-W / 4 + g * 0.58, H / 2 - g), (-W / 2 + g * 1.15, 0.0), (-W / 4 + g * 0.58, -H / 2 + g), (W / 4 - g * 0.58, -H / 2 + g)]
+    s_lo, s_hi, edge = ZONES[0][0], S_END - 0.006, 0.012
     for side, tag in ((1, "l"), (-1, "r")):
         bm = bmesh.new()
-        for z, (s0, s1, p, w) in enumerate(ZONES):
-            gap = 0.004
-            row = 0
-            s = s0 + p + 0.0075
-            while s + 0.0 < s1 - 0.0075:
-                R = ring(s)
-                slant = math.hypot(R["R2"][0] - R["R3"][0], R["R2"][1] - R["R3"][1])
-                v = 0.05 + (w / 2 if row % 2 else 0.0)
-                while v + w / 2 < slant - 0.03:
-                    outline = [(-p + gap, 0.0), (0.0, -w / 2 + gap)]
-                    for i in range(1, 6):
-                        a = -math.pi / 2 + math.pi * i / 6
-                        outline.append(((p - gap) * 0.95 * math.cos(a), (w / 2 - gap) * math.sin(a)))
-                    outline.append((0.0, w / 2 - gap))
+        c = 0
+        while True:
+            sc = s_lo + c * 0.75 * W
+            if sc - W / 2 > s_hi:
+                break
+            v = (H / 2 if c % 2 else 0.0)
+            while v - H / 2 < slant(min(sc + W / 2, s_hi)):
+                pts = []
+                for du, dv in hexagon:
+                    ss = min(max(sc + du, s_lo), s_hi)
+                    sl = slant(ss)
+                    vv = min(max(v + dv, edge), sl - edge)
+                    pts.append((ss, vv / sl))
+                # 裁剩面积（按 (s, v) 平面里的多边形面积估）
+                area = 0.0
+                for (sa, ta), (sb, tb) in zip(pts, pts[1:] + pts[:1]):
+                    area += sa * tb * slant(sb) - sb * ta * slant(sa)
+                if abs(area) / 2 > 0.3 * 0.75 * W * H:
                     vs = []
-                    for du, dv in outline:
-                        ss = min(max(s + du, s0 + 0.0075), s1 - 0.0075)
-                        rr = ring(ss)
-                        sl = math.hypot(rr["R2"][0] - rr["R3"][0], rr["R2"][1] - rr["R3"][1])
-                        t = min(max((v + dv) / sl, 0.0), 1.0)
-                        rise = 0.0015 + 0.004 * max(0.0, (du + p) / (2 * p))
-                        vs.append(bm.verts.new(surface(ss, "lower", t, side, lift=rise)[0]))
-                        vs.append(bm.verts.new(surface(ss, "lower", t, side, lift=-0.002)[0]))
+                    for ss, t in pts:
+                        for lift in (0.003, -0.002):
+                            vs.append(bm.verts.new(surface(ss, "lower", t, side, lift=lift)[0]))
                     bmesh.ops.convex_hull(bm, input=vs)
                     count += 1
-                    v += w
-                s += p
-                row += 1
+                v += H
+            c += 1
         bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS")
+        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
         o = new_object(f"scales.{tag}", bm, "belly", {"skin": "scales", "lineLevel": "secondary", "shadow": False, "aoOccluder": False})
         EDGES[o.name] = finish(o, bevel=0.0, angle=40)
         out.append(o)
@@ -731,12 +751,13 @@ def build():
     boolean(b, brow())
     boolean(b, fairing())
     boolean(b, socket_cutter(), "DIFFERENCE")
-    boolean(b, slot_cutter(), "DIFFERENCE")
+    for c in slot_cutter():
+        boolean(b, c, "DIFFERENCE")
     assign_body_materials(b)
     EDGES[b.name] = finish(b, bevel=0.03, angle=30)
     objs.append(b)
     objs += eye()
-    objs.append(shield())
+    objs += shield()
     objs += canopy()
     objs += rails()
     objs += canards()
@@ -760,7 +781,7 @@ def build():
         "callouts": [
             {"n": 1, "label": "机头光窗（虹膜）", "at": list(c)},
             {"n": 5, "label": "眉骨", "at": list(at(4.5, 0, spine_z(4.5) + 0.06))},
-            {"n": 6, "label": "遮光盾（收起）", "at": list(at(BROW[2] - 0.1, 0, spine_z(BROW[2]) + 0.035))},
+            {"n": 6, "label": "遮光盾（收起）", "at": list(at(BROW[2] - 0.1, 0, roof_z(BROW[2] - 0.1, 0) + SLOT_DZ))},
             {"n": 7, "label": "座舱盖（低矮）", "at": list(at(6.1, 0, Z_TIP + 1.25))},
         ],
     }

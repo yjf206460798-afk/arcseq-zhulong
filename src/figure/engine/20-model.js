@@ -214,8 +214,8 @@
       const geo = part.kind === "round" ? roundGeometry(part) : polyGeometry(part);
       for (const [kind, data] of Object.entries(geo)) {
         if (!data.pos.length) continue;
-        const key = `${keyOf(part)}|${kind}|${material.uuid}|${part.show ?? ""}|${part.cut ? 1 : 0}`;
-        if (!buckets.has(key)) buckets.set(key, { joint: keyOf(part), glow: !!part.glow, show: part.show ?? null, cut: !!part.cut, material: kind === "recess" ? recess(material) : material, ...newBucket(), ranges: [] });
+        const key = `${keyOf(part)}|${kind}|${material.uuid}|${part.show ?? ""}|${part.cut ? 1 : 0}|${part.section ?? ""}`;
+        if (!buckets.has(key)) buckets.set(key, { joint: keyOf(part), glow: !!part.glow, show: part.show ?? null, cut: !!part.cut, section: part.section ?? "cap", material: kind === "recess" ? recess(material) : material, ...newBucket(), ranges: [] });
         const b = buckets.get(key);
         b.ranges.push([b.pos.length / 3, (b.pos.length + data.pos.length) / 3, index]);
         for (const q of ["pos", "nor", "mark", "depth", "ao", "glow", "uv"]) for (let i = 0; i < data[q].length; i++) b[q].push(data[q][i]);
@@ -231,7 +231,7 @@
       g.setAttribute("aGlow", new THREE.Float32BufferAttribute(b.glow, 1));
       g.setAttribute("uv", new THREE.Float32BufferAttribute(b.uv, 2));
       g.computeBoundingSphere();
-      const mesh = new THREE.Mesh(g, b.cut ? cutMaterial(b.material) : b.material);
+      const mesh = new THREE.Mesh(g, b.cut ? cutMaterial(b.material, b.section) : b.material);
       mesh.userData.ranges = b.ranges;
       mesh.userData.show = b.show;
       groupObj(b.joint).add(mesh);

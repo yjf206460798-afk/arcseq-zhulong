@@ -17,12 +17,12 @@ from mathutils import Vector
 
 from kit.parts import actuator, beam, bolts, box, bracket, clamp, connector, cylinder, ellipsoid, frame, hull, lathe, merge, pipe, pump, tank, valve
 
-from .nose import EYE, S_END, Z_TIP, at, ring, top_profile
+from .nose import EYE, S_END, S_FLAT as S_FLAT_I, Z_TIP, at, ring, top_profile
 from .util import XN, lerp
 
-SKIN = 0.035  # 蒙皮厚（剖面带的宽）
+SKIN = 0.04  # 蒙皮厚（剖面带的宽，3～5 cm）
 P = {"module": "interior", "lineLevel": "structure"}
-PC = {**P, "cut": True}  # 剖切面上被切开的内部件（屏幕墙、地板……K1 里近侧一半是剖掉的）
+PC = {**P, "cut": True, "section": "cap"}  # 剖切面上被切开的内部件（屏幕墙、地板……K1 里近侧一半是剖掉的）
 
 # —— K1 → 机体 ——————————————————————————————————————————————————————
 K1_PX = 220.0
@@ -152,47 +152,100 @@ Y = Vector((0, 1, 0))  # 朝左（剖视时朝观众）
 Z = Vector((0, 0, 1))
 
 
-# —— 结构 ——————————————————————————————————————————————————————————
-INNER_FRAMES = [  # (K1 x, 板宽, 名) K1 里的竖向舱壁 / 框
-    (148, 0.025, "f0"), (242, 0.03, "f1"), (356, 0.035, "f2"), (511, 0.045, "f3"), (701, 0.05, "f4"),
-    (882, 0.05, "f5"), (910, 0.05, "f6"), (1090, 0.06, "f7"),
-]
+# —— 结构：隔框每约 0.5 m（K1 的舱壁站位 + 补齐）、远侧桁条、中线上下纵梁 ————————————————
+FRAME_S = [0.56, 0.99, 1.51, 2.21, 2.65, 3.08, 3.49, 3.9, 4.03, 4.43, 4.84, 5.3, 5.8, 6.3, 6.8, 7.3]
+CANOPY_OPEN = (4.84, 7.0)  # 座舱开口：这一段的隔框不封顶（U 形）
+
+
+def frame_at(acc, s, tag):
+    """一道隔框：沿内表面内缩的一圈板（剖视时近侧一半切掉，切口是实心剖面）；座舱开口段只做 U 形（不过屋面）；
+    框缘上下各一排螺栓；中线处（背脊、龙骨）各一块横跨剖切面的连接块，剖开后露出框的实心截面。"""
+    w = 0.05 if s > 1.2 else 0.03
+    ring_ = list(reversed(inner_ring(s)))
+    skip = set()
+    if CANOPY_OPEN[0] - 0.01 <= s <= CANOPY_OPEN[1]:
+        # reversed 顺序：[−R1, −R2, −R3, R3, R2, R1, R0]；边 k 连 k → k+1，R0 两侧的边（5、6）不做
+        skip = {5, 6}
+    pieces = frame(f"int.frame.{tag}", ring_, depth=0.03 if s > 1 else 0.02, width=w, material="structure", props=PC, skip=skip)
+    collect(acc, pieces)
+    ri = inner_ring(s, SKIN + 0.01 + w * 0.5)
+    # 远侧（y < 0）框缘螺栓：下切面与外上切面两段
+    for k, (i, j) in enumerate(((4, 5), (5, 6))):
+        a, b = ri[i] + X * 0.016, ri[j] + X * 0.016
+        n = max(2, int((b - a).length / 0.08))
+        collect(acc, bolts(f"int.frame.{tag}.bolts{k}", a, b, n, 0.006, X, props=P))
+    R = ring(s)
+    zk = R["R3"][1] + SKIN
+    collect(acc, hull(f"int.frame.{tag}.keel", [at(s + ds, dy, z) for ds in (-0.02, 0.02) for dy in (-0.05, 0.05) for z in (zk, zk + 0.07)], "structure", PC, bevel=0.004))
+    if not skip:
+        # 屋面是脊（金字塔前机身）：块的上表面顺着屋面坡度
+        r0, r1 = inner_ring(s, SKIN + 0.004)[:2]
+        slope = (r0.z - r1.z) / max(1e-6, r1.y - r0.y)
+        collect(acc, hull(f"int.frame.{tag}.spine", [at(s + ds, dy, z) for ds in (-0.02, 0.02) for dy in (-0.05, 0.0, 0.05) for z in (r0.z - 0.07, r0.z - slope * abs(dy))], "structure", PC, bevel=0.004))
 
 
 def structure(acc):
-    for x, w, tag in INNER_FRAMES:
-        s = ks(x)
-        collect(acc, frame(f"int.frame.{tag}", list(reversed(inner_ring(s))), depth=0.03 if s > 1 else 0.02, width=w, material="structure", props=P))
-        # 框缘一圈螺栓（只在上下两段，K1 里看得见的那几排）
-        ri = inner_ring(s, SKIN + 0.01 + w * 0.5)
-        for k, (i, j) in enumerate(((0, 1), (3, 4))):
-            a, b = ri[i] + X * 0.016, ri[j] + X * 0.016
-            n = max(2, int((b - a).length / 0.07))
-            collect(acc, bolts(f"int.frame.{tag}.bolts{k}", a, b, n, 0.006, X, props=P))
-    # 上纵梁（K1：机头段顶上一根工字梁，s 0.9 起沿顶线到眉骨前框）与下纵梁（龙骨内侧）
-    pts = [k1(x, y) for x, y in ((250, 418), (511, 393), (701, 373), (882, 353))]
-    for k, (a, b) in enumerate(zip(pts, pts[1:])):
-        collect(acc, beam(f"int.longeron.top.{k}", a, b, 0.05, 0.05, Z, kind="I", props=P, holes=int((b - a).length / 0.12)))
-    pts = [k1(x, y) for x, y in ((250, 476), (511, 503), (701, 528), (882, 543))]
-    for k, (a, b) in enumerate(zip(pts, pts[1:])):
-        collect(acc, beam(f"int.longeron.bot.{k}", a, b, 0.05, 0.045, Z, kind="channel", props=P, holes=int((b - a).length / 0.14)))
-    # 机柜舱上下横梁（K1 y 370 / 500，s 3.1～3.95）与眉骨后的斜撑（座舱前风挡框下的斜梁）
+    for k, s in enumerate(FRAME_S):
+        frame_at(acc, s, f"f{k}")
+    # 远侧桁条（y < 0，贴着内表面）：朱红脊线角、棱线角、下切面中、腹缘角；座舱段的屋面桁条就是窗槛纵梁
+    for k, (pick, t) in enumerate((("R1", None), ("R2", None), ("mid", None), ("R3", None))):
+        pts = []
+        for s in (0.75, S_FLAT_I, S_END - 0.02):
+            ri = inner_ring(s, SKIN + 0.012)
+            # ri 顺序 [R0, R1, R2, R3, −R3, −R2, −R1]
+            if pick == "R1":
+                p = ri[6]
+            elif pick == "R2":
+                p = ri[5]
+            elif pick == "R3":
+                p = ri[4]
+            else:
+                p = (ri[5] + ri[4]) / 2
+            pts.append(p)
+        for j, (a, b) in enumerate(zip(pts, pts[1:])):
+            collect(acc, beam(f"int.stringer.{k}.{j}", a, b, 0.035, 0.03, Vector((0, 1, 0.4)), kind="angle", props=P))
+    # 中线纵梁：龙骨（全长）与背脊（到座舱开口前），横跨剖切面，剖开后是实心截面
+    for name, f, s0, s1, dz in (("keel", lambda s: ring(s)["R3"][1] + SKIN + 0.02, 0.8, S_END - 0.02, 1), ("spine", lambda s: ring(s)["R0"][1] - SKIN - 0.025, 0.8, CANOPY_OPEN[0] - 0.02, -1)):
+        pts = [at(s, 0, f(s)) for s in (s0, min(S_FLAT_I, s1), s1)]
+        for j, (a, b) in enumerate(zip(pts, pts[1:])):
+            if (b - a).length > 0.05:
+                collect(acc, beam(f"int.longeron.{name}.{j}", a, b, 0.06, 0.045, Z, kind="I", props=PC, holes=int((b - a).length / 0.15)))
+    # 机柜舱上下横梁（K1 y 370 / 500）与眉骨后的斜撑
     collect(acc, beam("int.rack.top", k1(708, 371), k1(911, 368), 0.06, 0.04, Z, kind="channel", props=P, holes=6))
     collect(acc, beam("int.rack.shelf", k1(714, 501), k1(907, 501), 0.06, 0.035, Z, kind="channel", props=P, holes=6))
-    collect(acc, beam("int.brow.strut", k1(1003, 358), k1(1080, 404), 0.06, 0.05, Y, kind="box", props=P))
-    # 起落架舱顶（地板梁，K1 y 478，s 4.03～6.5）：一根长工字梁 + 远侧舱壁板与斜撑
-    collect(acc, beam("int.gear.roof", at(ks(911), 0, Z_GEAR + 0.02), at(ks(1460), 0, Z_GEAR + 0.02), 0.08, 0.04, Z, kind="I", props=P, holes=18))
-    for k, (x0, x1) in enumerate(((911, 1226), (1226, 1460), (1460, 1690))):
-        s0, s1 = ks(x0), ks(x1)
-        zb = max(keel(s0), keel(s1)) + 0.04
-        y = -min(half_width(s0, zb + 0.01), half_width(s1, zb + 0.01)) + 0.012
-        collect(acc, hull(f"int.bay.wall.{k}", [at(s, y + d, z) for s in (s0 + 0.01, s1 - 0.01) for d in (0, -0.008) for z in (zb, Z_GEAR)], "backwall", P, bevel=0.003))
-        # 板上的交叉斜撑（K1 舱壁上的 X）
-        for j, (za, zb_) in enumerate(((zb + 0.02, Z_GEAR - 0.02), (Z_GEAR - 0.02, zb + 0.02))):
-            collect(acc, beam(f"int.bay.brace.{k}.{j}", at(s0 + 0.03, y + 0.02, za), at(s1 - 0.03, y + 0.02, zb_), 0.03, 0.02, Y, kind="angle", props=P))
-    for k, x in enumerate((1226, 1310, 1428, 1565)):
-        s = ks(x)
-        collect(acc, beam(f"int.bay.post.{k}", at(s, -0.05, keel(s) + 0.03), at(s, -0.05, Z_GEAR), 0.05, 0.04, X, kind="channel", props=P, holes=3))
+    collect(acc, beam("int.brow.strut", k1(1003, 358), k1(1080, 404), 0.06, 0.05, Y, kind="box", props=PC))
+    # 起落架舱顶（地板梁，s 4.03～6.5）：中线一根长工字梁（剖开）+ 每道框一根横梁
+    collect(acc, beam("int.gear.roof", at(ks(911), 0, Z_GEAR + 0.02), at(ks(1460), 0, Z_GEAR + 0.02), 0.08, 0.04, Z, kind="I", props=PC, holes=18))
+    for k, s in enumerate(f for f in FRAME_S if ks(911) < f < ks(1460)):
+        hw = half_width(s, Z_GEAR) - 0.01
+        collect(acc, beam(f"int.gear.roofrib.{k}", at(s, -hw, Z_GEAR), at(s, hw, Z_GEAR), 0.04, 0.05, Z, kind="channel", props=PC))
+
+
+def harness(acc):
+    """线束：上下两根主干（远侧，沿桁条），每道隔框处一根支线沿框下到下干；两端都落在接线盒上（不悬空）。"""
+    tops, bots = [], []
+    for s in FRAME_S:
+        if s < 0.9 or s > S_END - 0.1:
+            continue
+        ri = inner_ring(s, SKIN + 0.06)
+        tops.append((s, ri[6] + Vector((0, 0.01, -0.03))))
+        bots.append((s, ri[4] + Vector((0, 0.01, 0.04))))
+    for name, pts, r in (("top", tops, 0.016), ("bot", bots, 0.018)):
+        P3 = [p for _, p in pts]
+        collect(acc, pipe(f"int.harness.{name}", P3, r, bend=0.1, sides=8, material="cable", props=P))
+        # 两端接线盒
+        for k, (s, p) in enumerate((pts[0], pts[-1])):
+            collect(acc, box(f"int.harness.{name}.jbox{k}", p + Vector((0.04 if k == 0 else -0.04, 0.0, 0.0)), (0.08, 0.06, 0.06), material="avionics", face="+y", panel=False, handles=False, plugs=1, props=P, corner_bolts=True))
+    for k, ((s, a), (_, b)) in enumerate(zip(tops, bots)):
+        ri = inner_ring(s, SKIN + 0.07)
+        mid = (ri[5] + Vector((0, 0.01, 0))) if s < CANOPY_OPEN[0] else (ri[5] + Vector((0, 0.03, 0)))
+        collect(acc, pipe(f"int.harness.drop.{k}", [a + X * 0.04, mid + X * 0.04, b + X * 0.04], 0.008, bend=0.08, sides=6, material="cable", props=P))
+        for j, p in enumerate((a + X * 0.04, b + X * 0.04)):
+            collect(acc, connector(f"int.harness.drop.{k}.c{j}", p, X, 0.01, length=0.025, props=P))
+        # 每段支线上两只卡箍，卡在框上
+        for j, f in enumerate((0.33, 0.66)):
+            p = (a.lerp(mid, f * 2) if f < 0.5 else mid.lerp(b, f * 2 - 1)) + X * 0.04
+            collect(acc, clamp(f"int.harness.drop.{k}.clip{j}", p, (mid - a) if f < 0.5 else (b - mid), 0.008, props=P))
 
 
 # —— 机头尖：眼珠座、传感器组 ② ——————————————————————————————————————
@@ -555,6 +608,7 @@ def aft_bay(acc):
 def build():
     acc = []
     structure(acc)
+    harness(acc)
     nose_bay(acc)
     rcs_bay(acc)
     avionics_fwd(acc)

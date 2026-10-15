@@ -56,7 +56,7 @@ for L in A:dist/index.html B:dist/metal.html; do
   $S --page $P --mode lines --prefix CLOSE-$T --views 30 --tag 4x-canopy --scale 2 --pre "__arcseq.focus('canopy',4)"
   $S --page $P --mode lines --prefix CLOSE-$T --views 60 --elevation 12 --tag 4x-rcs --scale 2 --pre "__arcseq.view(60,'lines',12);__arcseq.focus('rcs.l',4)"
   $S --page $P --mode lines --prefix CLOSE-$T --views 30 --elevation 10 --tag 12x-eye --scale 2 --pre "$ON;__arcseq.view(30,'lines',10);__arcseq.focus('sensor',12)"
-  $S --page $P --mode lines --prefix CLOSE-$T --views 60 --tag 12x-roller --scale 2 --pre "__arcseq.focus([4.52,0.5,2.22],12)"
+  $S --page $P --mode lines --prefix CLOSE-$T --views 60 --tag 12x-roller --scale 2 --pre "__arcseq.view(60,'lines');__arcseq.focus([4.52,0.5,2.22],12)"
   $S --page $P --mode lines --prefix CLOSE-$T --views 90 --elevation 0 --tag 4x-cockpit-cut --scale 2 --pre "__arcseq.cutaway(true).then(()=>{__arcseq.view(90,'lines',0);__arcseq.focus([3.35,0,2.2],3.2)})"
 done
 

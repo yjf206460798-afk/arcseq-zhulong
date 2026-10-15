@@ -50,6 +50,10 @@ def main():
         else:
             o["cut"] = True
             spans.append(o.name)
+    # 机身蒙皮是空心的：切口画暗内壁，蒙皮自己的剖面由 section.py 的剖面带给出
+    for o in ext:
+        if o.name == "nose.body":
+            o["section"] = "inside"
     print("cut:", " ".join(sorted(spans)))
     pairs, callouts = interior.build()
     inner = [o for o, _ in pairs]

@@ -42,6 +42,14 @@
     cutaway.on = !!on;
     showState.cutaway = cutaway.on;
     for (const layer of airLayers) if (layer.cut) layer.clip(cutaway.on);
+    // 座舱盖玻璃：剖视时半透明、线条转青色（K1 的画法）
+    for (const m of cutGlass) {
+      m.transparent = cutaway.on;
+      m.depthWrite = !cutaway.on;
+      m.uniforms.uOpacity = { value: cutaway.on ? 0.28 : 1 };
+      m.needsUpdate = true;
+    }
+    for (const layer of airLayers) if (layer.glass) layer.tint(cutaway.on ? "#7bdbec" : null, 0.85);
     // 剖视时座舱通电（K1 里屏幕墙与平视显示器是亮的）；作品可在 DATA.cutawayPower 里改
     for (const [key, v] of Object.entries(DATA.cutawayPower ?? { cockpit: 0.85, "cockpit.red": 0.18 })) powerOf(key).value = cutaway.on ? v : 0;
     const button = document.querySelector("[data-cutaway]");

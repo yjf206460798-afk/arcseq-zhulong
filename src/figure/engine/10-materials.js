@@ -67,6 +67,9 @@
     uniform float uSweep;
     uniform float uUseSweep;
     uniform vec3 uInside;
+    uniform float uCap;
+    uniform vec3 uCapColor;
+    uniform float uCapOpacity;
     varying vec3 vM0;
     varying vec3 vM1;
     varying vec3 vM2;
@@ -117,7 +120,17 @@
       // 发光缓冲：只有自发光量，其余写黑（但照常写深度，挡住后面的发光件）
       if (uGlowPass > 0.5) { gl_FragColor = vec4(uGlowColor * glow * (1.0 - uUseFlat), 1.0); return; }
       // 剖视：被剖切面切开的蒙皮从里面看是暗的内壁（不分档，只随朝上程度略变）
-      if (!gl_FrontFacing) { gl_FragColor = vec4(uInside * (0.75 + 0.25 * abs(normalize(vN).z)), 1.0); return; }
+      if (!gl_FrontFacing) {
+        if (uCap > 0.5) {
+          // 剖面（被剖切面切开的实心零件）：比本体亮一档的平色 + 极淡的 45° 细斜线（屏幕空间，每 7 像素一道）
+          float h = fract((gl_FragCoord.x + gl_FragCoord.y) / 7.0);
+          float hatch = smoothstep(0.0, 0.12, h) * (1.0 - smoothstep(0.12, 0.26, h));
+          gl_FragColor = vec4(uCapColor * (1.0 - 0.14 * hatch) * uDim, uCapOpacity);
+          return;
+        }
+        gl_FragColor = vec4(uInside * (0.75 + 0.25 * abs(normalize(vN).z)), 1.0);
+        return;
+      }
       if (uLook > 0.5) {
         // —— B：金属质感 ——
         vec3 n = normalize(vN);
@@ -216,6 +229,9 @@
         uGlowPower: glow ? powerOf(glow.key) : { value: 0 },
         uSweep: { value: 1 },
         uUseSweep: { value: 0 },
+        uCap: { value: 0 },
+        uCapColor: { value: new THREE.Color() },
+        uCapOpacity: { value: 1 },
         uPbr: { value: new THREE.Vector3(...pbr) },
         uPbrMap: { value: pbrMap?.texture ?? blackTex },
         uUsePbrMap: { value: pbrMap ? 1 : 0 },
@@ -279,15 +295,26 @@
   const cutPlanes = [];
   const cutPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0);
   const cutMats = new Map();
-  const cutMaterial = (material) => {
-    if (!cutMats.has(material)) {
+  /** 剖视时半透明的玻璃（座舱盖：青色细边 + 半透明，K1 那样）；setCutaway 里切换。 */
+  const cutGlass = [];
+  /**
+   * section：被切开处画什么。"cap"（默认，实心零件）= 剖面：比本体最亮一档再亮一档的平色 + 极淡斜线；玻璃的剖面是青色；
+   * "inside"（空心的机身蒙皮）= 暗内壁，蒙皮自己的剖面由几何母版的剖面带（section.*）给出。
+   */
+  const cutMaterial = (material, section = "cap") => {
+    const key = `${material.uuid}|${section}`;
+    if (!cutMats.has(key)) {
       const m = material.clone();
-      m.uniforms = material.uniforms;
+      const t = material.uniforms.uTone.value;
+      const glass = material.uniforms.uGlint.value > 0;
+      const cap = glass ? new THREE.Color(0x3f8f9c) : new THREE.Color().copy(t[4]).multiplyScalar(1.12).add(new THREE.Color().copy(t[4]).sub(t[2]).multiplyScalar(0.9));
+      m.uniforms = { ...material.uniforms, uCap: { value: section === "cap" ? 1 : 0 }, uCapColor: { value: cap }, uCapOpacity: { value: 1 } };
       m.clipping = true;
       m.clippingPlanes = cutPlanes;
       m.side = THREE.DoubleSide;
       materials.push(m);
-      cutMats.set(material, m);
+      cutMats.set(key, m);
+      if (glass) cutGlass.push(m);
     }
-    return cutMats.get(material);
+    return cutMats.get(key);
   };
