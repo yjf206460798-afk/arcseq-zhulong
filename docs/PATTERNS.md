@@ -136,6 +136,16 @@
 - 参考实现：`src/figure/engine/meshpack.mjs`（Node）、`05-glb.js` 的 `unpackMesh`（浏览器）。
 - 做法：build.mjs 读 GLB 成零件后重新打包：每个零件按自己的包围盒把坐标量化成 uint16（7.6 m 的件精度约 0.12 mm）、法线 int8、uv uint16、AO uint8、索引 uint16（< 65536 顶点时），母版硬边同样量化；一段 base64 + 一段 JSON 头。页面体积约为直接内联 GLB 的一半。
 
+## 拆图：分色图 → 零件表（Z1 复刻样板定，WORKFLOW「拆图」）`[kit]`
+
+- 输入：作者用 GPT 编辑出的分色块面图（八类纯色 + 黑描边）、`<图名>_分色.calib.json`（分色图 → 原图，横竖分别缩放）、`<图名>.calib.json`（原图 → 机体米制：锚点、px/m、竖向映射分区）。
+- 脚本：`scripts/k1-parts.py`（`.venv/bin/python`，要 scipy、scikit-image）。分类按 HSV 色相，阈值见 `classify()`；块状零件 = 每类 4 邻接连通块（黑描边隔开同色件），最小面积按类；
+  结构另用“成对长竖直描边 + 中间灰”找框（框和内壁同灰时连通块找不全）；管线 = 骨架 → 节点之间的分支 → RDP 折线 + 距离变换取半径，两端在 7 px 内找最近的、进了表的零件（色块交界的抗锯齿杂色不算）。
+- 输出列：编号、名称、类别、区段、站位 s、y、z、长宽高、基本形、材质、固定在、现有零件、来源图、把握度、y 来源、原图像素框、路径（管：s:z;…）、备注。“现有零件”按同类包围盒 IoU（管按路径落点）对到几何母版，缺的就是待建清单。
+- 已知错误（README 里列的）写进 calib 的 `known_errors`（原图像素框 + 说明），对应的行标“忽略”，不建。
+- 交审三张图：PARTS-overlay（全部叠回原图）、PARTS-split（分类别）、PARTS-status（已有 / 缺）。作者确认后才按表建模。
+- `[Codex]` 后续每张有分色图的参考图（E1～E4、L0）照此出零件表：复制脚本，改输入、锚点、区段表与 ROLE 命名表。
+
 ## 审图截图（FIG.02 补充）
 
 - 在 FIG.01「审图截图」的基础上：`shots.mjs --elevation <度>`（临时俯仰）；`--pre "__arcseq.focus('<地标>' | [x,y,z], 倍数)"`（特写取景：把模型坐标点放到画面中心，处理了不对称视锥）；`__arcseq.look({ ao, detail, bloom })`（逐项关开对照）；`__arcseq.environment('space')`。
