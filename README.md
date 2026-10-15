@@ -16,7 +16,7 @@
 | `docs/BLENDER.md` | Blender 管线：云端实测结论与建模规矩 |
 | `docs/DESIGN.md` | 机体设定：名字由来、尺寸、外形、两种形态、化剑步骤、机构清单 |
 | `docs/SETTING_CARD.md` | 一页设定卡（体系“边做边长”用） |
-| `docs/ROADMAP.md` | 阶段 Z0～Z6 与当前进度 |
+| `docs/ROADMAP.md` | 阶段 Z0～Z7 与当前进度 |
 | `docs/WORKFLOW.md` | Claude × Codex 分工（与 FIG.01 相同） |
 | `docs/VISUAL_TARGET.md` | A380 质感标准（与 FIG.01 相同） |
 | `docs/IMAGE_PROMPTS.md` | 已用和待用的 GPT 出图提示词 |
