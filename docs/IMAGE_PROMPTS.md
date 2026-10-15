@@ -138,6 +138,21 @@ Small mode label and a 3-item status line on each panel (e.g. "FANS DEPLOYED / R
 
 ## 待用（可选，不影响开工）
 
+### 建模用图（在已定稿的参考图上做图片编辑，配合 WORKFLOW「拆图」）
+```
+Edit the attached drawing into a flat MODELING REFERENCE with exactly the same content, composition and part positions. Do not move, resize, add or remove any part. Remove all text, numbers, callouts, leader lines, legends, scale bars, glows, reflections and shading. Draw every part as a flat solid fill with a thin black outline, color-coded by type:
+- fuselage skin and structural frames: light gray
+- boxes, electronics and tanks: green
+- pipes, ducts and cable bundles: blue
+- mechanisms, actuators, hinges and rails: orange
+- seats, pilot and helmet: purple
+- glass and displays: cyan
+- glowing elements (sensor window, plasma, lights): yellow
+- wheels and landing gear: brown
+Pure white background. Strictly orthographic, no perspective. Keep the image size and framing identical to the original.
+```
+用法：出图后与原图 50% 叠图，零件偏移超过约 2% 画幅就不用。
+
 ### P5 · 主视觉
 ```
 Same aircraft as the attached three-view: the "Zhulong" aerospace fighter, three-quarter top-down isometric view, parked on a dark circular hangar turntable, background #101518. Industrial technical illustration: crisp thin outlines, soft four-tone flat shading on faceted surfaces, very fine panel lines, small red (left) and green (right) navigation lights, a faint warm amber glow in the nose sensor aperture. Calm, precise, premium, like a museum exhibit poster. Not a game render, no lens flares, no dramatic effects.
