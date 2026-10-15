@@ -1,0 +1,45 @@
+/* 品牌色：背景 #101518、地台 #23292C、主描边 #DCE9EB、结构线 #8099A3、选中青 #7BDBEC、警告琥珀 #F0BD83（与 FIG.01 同一套界面外壳） */
+.iso{
+  --anatomy-page:#0b0f11;--anatomy-card:#101518;--anatomy-paper:#101518;
+  --anatomy-text:#9fb0b6;--anatomy-muted:#62737a;--anatomy-strong:#dce9eb;
+  --anatomy-hi:#dce9eb;--anatomy-mid:#8099a3;--anatomy-lo:#4a5a61;--anatomy-faint:#2b363b;
+}
+.iso-page{width:min(1200px,calc((100dvh - 120px)*1000/670 + 48px),calc(100% - 24px));margin:8px auto}
+.iso-figure{margin:0;min-height:calc(100dvh - 16px);display:flex;flex-direction:column}
+.iso-plate{box-shadow:0 0 0 1px #2b363b;padding:34px 24px 28px;flex:1;display:flex;flex-direction:column}
+.iso-plate-corners{inset:12px 16px}
+.iso-legend{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 12px;font-size:10px;line-height:1.4;margin-top:8px}
+
+.af-stage{position:relative;width:100%;height:clamp(60dvh,calc(100dvh - 140px),88dvh);flex:none;display:grid;place-items:center;overflow:hidden;outline:none;cursor:grab;touch-action:pan-y;background:#101518}
+.af-stage:active{cursor:grabbing}
+.af-stage:focus-visible{box-shadow:0 0 0 1px #7bdbec}
+.af-canvas{display:block}
+
+/* 底栏：A1 那种紧凑的等宽小字行，左侧行名，细边框按钮 */
+.af-console{position:relative;margin-top:auto;min-width:0;font:500 11px/1.4 ui-monospace,"SFMono-Regular",Menlo,monospace;color:#8099a3}
+.af-actions{display:grid;gap:4px;padding:8px 0 2px;border-top:1px solid #1d2529}
+.af-row{display:flex;align-items:center;gap:12px;min-height:26px;min-width:0}
+.af-key{width:64px;flex:none;letter-spacing:.08em;color:#4a5a61;font-size:10px}
+.af-chips,.af-panel{display:flex;align-items:center;gap:6px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:thin}
+.af-chip{font:inherit;white-space:nowrap;flex:none;color:#9fb0b6;background:#151b1e;border:1px solid #2b363b;border-radius:3px;padding:3px 8px;cursor:pointer;touch-action:manipulation}
+.af-chip:hover{border-color:#4a5a61;color:#dce9eb}
+.af-chip[aria-pressed="true"]{border-color:#7bdbec;color:#dce9eb;box-shadow:inset 0 0 0 1px rgba(123,219,236,.25)}
+.af-chip:focus-visible{outline:1px solid #7bdbec;outline-offset:1px}
+.af-name{color:#dce9eb;white-space:nowrap;flex:none}
+.af-state{color:#8099a3;white-space:nowrap;min-width:0}
+[data-show-state]{flex:1;overflow:hidden;text-overflow:ellipsis}
+.af-hint{color:#4a5a61}
+
+@media (max-width:560px){
+  .iso-page{width:calc(100% - 16px);margin:8px auto}
+  .iso-plate{padding:34px 12px 6px}
+  .iso-plate-corner[data-corner="hint"],.iso-plate-corner[data-corner="readout"]{display:none}
+  .iso-plate-corner[data-corner="title"]{font-size:9px;letter-spacing:.04em}
+  .iso-legend{display:block;font-size:9px;line-height:1.4;margin-top:6px}
+  .iso-figure{height:calc(100dvh - 16px);min-height:0}
+  .af-stage{flex:1 1 0;height:auto;min-height:40dvh}
+  .af-row{align-items:flex-start;gap:8px;min-height:44px}
+  .af-key{width:52px;padding-top:15px;font-size:9px}
+  .af-chip{min-width:68px;min-height:44px;padding:8px 10px;font-size:11px}
+  [data-show-state]{display:none}
+}

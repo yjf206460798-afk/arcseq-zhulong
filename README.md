@@ -1,4 +1,19 @@
-# 弧序 ARCSEQ · FIG.02 · 烛龙（开工包，暂存）
+# 弧序 ARCSEQ · FIG.02 · 烛龙
+
+## 构建
+
+```sh
+python3.13 -m venv .venv && .venv/bin/pip install bpy pillow   # 一次（Blender 5.2 的 Python 模块，约 400 MB）
+.venv/bin/python blender/build.py                              # 几何母版 → assets/（建模 + 烘焙 + 导出，约 1 分钟）
+node src/figure/build.mjs                                      # → dist/index.html（网页不需要 Blender）
+export CHROME_PATH="$PWD/scripts/chrome.sh"
+node src/figure/shots.mjs review/<目录> --mode lines --prefix AFTER   # 四方位审图
+sh scripts/z1-review.sh                                        # Z1 全部交审图
+```
+
+---
+
+（以下为开工包原说明）
 
 原创单座空天战机，可从大气形态收拢“化剑”。本包是开工前的全部设定与参考，**还没有建仓库**。做到这一件时：
 
