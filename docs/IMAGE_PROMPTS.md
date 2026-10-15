@@ -147,5 +147,18 @@ Same aircraft as the attached three-view: the "Zhulong" aerospace fighter, three
 Same aircraft as the attached three-views, two states side by side in the same isometric view and style: LEFT atmosphere mode (canards out, wings spread, canopy visible, tails canted up); RIGHT sword mode (as in the sword-mode three-view: wings folded back flush, tails flat as a crossguard, heat shield over the canopy, red chine edges faintly glowing). Dark hangar turntable, industrial illustration style.
 ```
 
+### PX1 · 飞行员服「衔烛」设定图（附 K1；软态 + 披甲态 + 分层）
+```
+Character equipment concept sheet for an ORIGINAL aerospace pilot suit named "Xianzhu" (衔燭), worn by the single pilot of the "Zhulong" aerospace fighter (cockpit section attached for context). One sheet, dark blue-black background, industrial vector illustration, ultra-fine hierarchical pale cyan-white linework, muted blue-grey structural lines, flat precise shading, no photorealism. A real engineered suit, slim and practical, NOT a superhero armor and NOT bulky.
+
+Layout:
+TOP ROW — the suit in SOFT MODE (inside the atmosphere), orthographic FRONT, SIDE and BACK views of a standing pilot, same scale: a close-fitting matte graphite flight suit with anti-G bladders on thighs and abdomen, harness straps, a chest-side umbilical connector, a helmet with a clear visor raised slightly. A single thin vermilion line runs down the center of the back from helmet base to waist (unlit, dark red).
+MIDDLE ROW — the same suit in ARMORED MODE (outside the atmosphere): FRONT and SIDE views. The suit is pressurized and stiffer; small overlapping scale plates (pointing downward, like dragon scales, fine and subtle) are locked over the shoulders, forearms and along the spine; the gold sun-shield visor is lowered over the clear visor; the vermilion back line now glows softly.
+RIGHT COLUMN — HELMET detail in two states side by side: "OPEN EYE" clear visor; "CLOSED EYE" gold visor down, with a faint wireframe synthetic-vision display visible on the inside.
+BOTTOM ROW — EXPLODED LAYERS from inside out, pulled apart along a vertical axis with thin dashed assembly lines: 1 liquid-cooling undergarment with a fine tube network, 2 anti-G bladder layer, 3 restraint layer, 4 scale-armor outer layer, 5 double-visor helmet; plus a small close-up of 6 the umbilical connector (oxygen, cooling, power, data) plugging into the seat.
+
+Numbered callouts 1–6, each used once, small legend at bottom right. Small text "衔燭" on the left chest patch. Corner text "ARCSEQ / FIG.02". No slogans or other text. Original design: must not resemble any suit, armor or pilot outfit from films, games, anime or comics.
+```
+
 ### P7 · 彩蛋剪影（机甲构思到剪影层之后再用）
 留空，待构思。
