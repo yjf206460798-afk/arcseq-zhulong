@@ -222,17 +222,24 @@ def eye():
             pts.append((math.cos(ang) * ro, math.sin(ang) * ro))
         ds = 0.0009 * k
         P = [at(s_i + ds + d, y, c.z + z) for y, z in pts for d in (0.0, 0.0012)]
-        o, l = hull(f"sensor.iris.blade{k}", P, "metal", {"skin": f"sensor.iris.blade{k}", "lineLevel": "secondary"}, bevel=0.0)
+        o, l = hull(f"sensor.iris.blade{k}", P, "chrome", {"skin": f"sensor.iris.blade{k}", "lineLevel": "secondary", "aoFlat": True}, bevel=0.0)
         EDGES[o.name] = l
         out.append(o)
-    out.append(torus("sensor.iris.housing", s_i + 0.003, ro + 0.004, 0.0045, "carbon", {"skin": "sensor.iris.housing", "lineLevel": "secondary"}))
-    bm = bmesh.new()
-    bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=16, radius=0.034)
-    bmesh.ops.scale(bm, verts=bm.verts, vec=(0.5, 1, 1))
-    bmesh.ops.translate(bm, verts=bm.verts, vec=at(s_i + 0.022, 0, c.z))
-    o = new_object("sensor.lens", bm, "sensor", {"skin": "sensor.lens", "glow": {"key": "sensor", "color": "#ffb060"}})
-    EDGES[o.name] = finish(o, bevel=0, curved=True)
-    out.append(o)
+    out.append(torus("sensor.iris.housing", s_i + 0.003, ro + 0.004, 0.0045, "carbon", {"skin": "sensor.iris.housing", "lineLevel": "secondary", "aoFlat": True}))
+    # 瞳孔里一片圆镜片（R4 作者：要看得到圆形镜片——镜片在叶片前，半径 2.4 cm 小于六边形瞳孔的内切圆 2.6 cm，读成圆），
+    # 镜片中心一粒暗色内镜（像眼睛的瞳仁）；通电时琥珀色镜片是“烛”。叶片与座圈在眼球腔里，顶点 AO 会把它们压成一片黑，不烘（aoFlat）
+    def dome(name, s_, rad, depth, mat, props):
+        bm = bmesh.new()
+        bmesh.ops.create_uvsphere(bm, u_segments=40, v_segments=12, radius=1.0)
+        bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.x < -1e-6], context="VERTS")
+        bmesh.ops.scale(bm, verts=bm.verts, vec=(depth, rad, rad))
+        bmesh.ops.translate(bm, verts=bm.verts, vec=at(s_, 0, c.z))
+        o_ = new_object(name, bm, mat, props)
+        EDGES[o_.name] = finish(o_, bevel=0, curved=True)
+        return o_
+
+    out.append(dome("sensor.lens", s_i - 0.001, 0.024, 0.006, "sensor", {"skin": "sensor.lens", "glow": {"key": "sensor", "color": "#ffb060"}, "aoFlat": True}))
+    out.append(dome("sensor.pupil", s_i - 0.0055, 0.0085, 0.003, "carbon", {"skin": "sensor.pupil", "lineLevel": "secondary", "aoFlat": True}))
     if IRIS_CLOSED:
         out += iris_cap(c)
     # 根环：角膜边上一圈（虹膜六瓣铰在这一圈上，铰轴是这圈的切线，Z4 做开合）
