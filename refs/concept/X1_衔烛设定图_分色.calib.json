@@ -85,5 +85,175 @@
   "分层图第 1 层（液冷内衣）画出了肌肉轮廓：只取管网走向，人体解剖细节不采信",
   "分层图第 4 层鳞甲铺满全身：以披甲态正、侧视的覆盖范围为准（见 DESIGN 9.1.1）"
  ],
- "metric": "米制标定（身高 1.74 m 换算像素/米）由銜燭会话在 X0 填写。"
+ "metric": {
+  "fig_height_m": 1.8,
+  "rule": "站姿人像盔顶 → 鞋底 = 1.80 m（身高 1.74 + 鞋底 0.03 + 盔顶 0.03）；像素/米按人像分别取。分色坐标，原图坐标 = 分色 + 面板 (dx, dy)",
+  "figures": {
+   "soft.front": {
+    "ground_y_split": 546,
+    "top_y_split": 83,
+    "axis_x_split": 121.9,
+    "px_per_m": 257.22,
+    "dx": 1,
+    "dy": -2,
+    "view": "front"
+   },
+   "soft.side": {
+    "ground_y_split": 546,
+    "top_y_split": 83,
+    "axis_x_split": 293.0,
+    "px_per_m": 257.22,
+    "dx": 1,
+    "dy": -2,
+    "view": "side(+左侧)"
+   },
+   "soft.back": {
+    "ground_y_split": 546,
+    "top_y_split": 83,
+    "axis_x_split": 442.7,
+    "px_per_m": 257.22,
+    "dx": 1,
+    "dy": -2,
+    "view": "back"
+   },
+   "armored.front": {
+    "ground_y_split": 1180,
+    "top_y_split": 655,
+    "axis_x_split": 127.4,
+    "px_per_m": 291.67,
+    "dx": 3,
+    "dy": 1,
+    "view": "front"
+   },
+   "armored.side": {
+    "ground_y_split": 1179,
+    "top_y_split": 657,
+    "axis_x_split": 321.0,
+    "px_per_m": 290.0,
+    "dx": 3,
+    "dy": 1,
+    "view": "side(+左侧)"
+   }
+  },
+  "landmarks_m": {
+   "soft.front": {
+    "helmet_bottom_z": 1.524,
+    "belt_z": 1.116,
+    "crotch_z": 0.816,
+    "shoulder_width": 0.517,
+    "boot_top_z": [
+     0.245,
+     0.245
+    ],
+    "glove_c": [
+     [
+      0.28,
+      0.897
+     ],
+     [
+      -0.282,
+      0.899
+     ]
+    ],
+    "kneepad_c": [
+     [
+      -0.141,
+      0.56
+     ],
+     [
+      0.14,
+      0.559
+     ]
+    ]
+   },
+   "soft.side": {
+    "helmet_bottom_z": 1.532,
+    "belt_z": 1.124,
+    "boot_top_z": [
+     0.257
+    ],
+    "glove_c": [
+     [
+      -0.047,
+      0.89
+     ]
+    ],
+    "kneepad_c": [
+     [
+      -0.052,
+      0.566
+     ]
+    ]
+   },
+   "soft.back": {
+    "helmet_bottom_z": 1.559,
+    "belt_z": 1.127,
+    "crotch_z": 0.867,
+    "shoulder_width": 0.513,
+    "boot_top_z": [
+     0.257,
+     0.253
+    ],
+    "glove_c": [
+     [
+      -0.273,
+      0.9
+     ],
+     [
+      0.272,
+      0.9
+     ]
+    ]
+   },
+   "armored.front": {
+    "helmet_bottom_z": 1.519,
+    "belt_z": 1.114,
+    "crotch_z": 0.802,
+    "shoulder_width": 0.549,
+    "boot_top_z": [
+     0.247,
+     0.247
+    ],
+    "glove_c": [
+     [
+      0.287,
+      0.874
+     ],
+     [
+      -0.286,
+      0.875
+     ]
+    ],
+    "kneepad_c": [
+     [
+      -0.148,
+      0.562
+     ],
+     [
+      0.151,
+      0.561
+     ]
+    ]
+   },
+   "armored.side": {
+    "helmet_bottom_z": 1.524,
+    "belt_z": 1.121,
+    "boot_top_z": [
+     0.245
+    ],
+    "glove_c": [
+     [
+      -0.101,
+      0.882
+     ]
+    ],
+    "kneepad_c": [
+     [
+      -0.013,
+      0.53
+     ]
+    ]
+   }
+  }
+ }
 }
