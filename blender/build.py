@@ -40,6 +40,17 @@ def main():
     t0 = time.time()
     util.reset()
     ext, meta = nose.build()
+    # 剖视（剖切面 y = 0，从 +y 一侧看）：整件在近侧或远侧的外部件剖视时不画（近侧的挡住内部，远侧的在蒙皮外、线会透过蒙皮）；
+    # 跨中线的（机身、座舱盖、光窗、探头……）被剖切面切开
+    spans = []
+    for o in ext:
+        ys = [v.co.y for v in o.data.vertices]
+        if min(ys) > 0.002 or max(ys) < -0.002:
+            o["show"] = "!cutaway"
+        else:
+            o["cut"] = True
+            spans.append(o.name)
+    print("cut:", " ".join(sorted(spans)))
     pairs, callouts = interior.build()
     inner = [o for o, _ in pairs]
     meta["edges"].update({o.name: l for o, l in pairs})
@@ -50,8 +61,9 @@ def main():
     problems = section.containment(inner)
     t1 = time.time()
     print(f"build {t1 - t0:.1f}s · exterior {len(ext)} objects {tris(ext)} tris · interior {len(inner)} objects {tris(inner)} tris · {meta.get('tiles')} scale tiles")
-    for p in problems[:20]:
+    for p in problems[:40]:
         print("  穿出蒙皮:", p)
+    print(f"  穿出蒙皮合计 {len(problems)} 件")
     if "--render-only" in sys.argv:
         from zl import render
 
@@ -68,6 +80,7 @@ def main():
     t2 = time.time()
     bake.export(ext, os.path.join(assets, "zhulong.glb"))
     bake.export(inner, os.path.join(assets, "zhulong-interior.glb"))
+    meta["edges"] = {k: [round(x, 4) for x in v] for k, v in meta["edges"].items()}  # 0.1 mm，够了
     with open(os.path.join(assets, "zhulong.json"), "w") as f:
         json.dump(meta, f, ensure_ascii=False, separators=(",", ":"))
     print(f"bake {t2 - t1:.1f}s · export {time.time() - t2:.1f}s")

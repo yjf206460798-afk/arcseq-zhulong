@@ -11,18 +11,8 @@ from kit.finish import finish
 from kit.parts import new_object
 
 from .interior import SKIN
-from .nose import BROW, CANOPY, S_END, S_FRONT, Z_TIP, at, ring, spine_z
+from .nose import CANOPY, S_END, S_FRONT, Z_TIP, at, ring, top_profile
 from .util import XN, lerp
-
-
-def top_profile(s):
-    z = spine_z(s)
-    s0, s1, s2 = BROW
-    if s0 <= s <= s2:
-        z = max(z, lerp(spine_z(s0), spine_z(s1) + 0.1, min(1.0, (s - s0) / (s1 - s0))))
-    if s >= 6.85:
-        z = max(z, Z_TIP + lerp(1.27, 1.285, (s - 6.85) / (S_END - 6.85)))
-    return z
 
 
 def band(name, outer, inner, props):

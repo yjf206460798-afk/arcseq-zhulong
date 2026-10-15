@@ -53,3 +53,4 @@
 .af-legend{position:absolute;right:14px;bottom:12px;display:grid;grid-template-columns:repeat(2,auto);gap:2px 18px;padding:8px 12px;border:1px solid #2b363b;background:rgba(16,21,24,.85);font:500 10px/1.5 ui-monospace,"SFMono-Regular",Menlo,monospace;color:#9fb0b6;pointer-events:none}
 .af-legend b{display:inline-block;width:18px;color:#dce9eb;font-weight:500}
 @media (max-width:560px){.af-legend{display:none}}
+.af-legend[hidden]{display:none}

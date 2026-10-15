@@ -20,11 +20,12 @@ from .util import XN, at, boolean, lerp, mirror_object
 
 Z_TIP = 1.65
 APEX_S = -0.35
-S_FRONT = 0.02
+S_FRONT = 0.36  # 机身前端面（眼窝所在）；前面是眼珠与虹膜尖盖
 S_END = 7.6
 S_FLAT = 6.4  # 背脊在此之后放平
 K = {"R0": (0.0, 0.182), "R1": (0.135, 0.065), "R2": (0.150, 0.035), "R3": (0.070, -0.118)}
-EYE = {"s": 0.035, "r": 0.052}
+EYE = {"s": 0.33, "r": 0.086, "z": 0.01}  # C2 三视图实测：眼心 s≈0.32、半径约 0.09，略高于机头尖线
+CAP_S, CAP_R = 0.255, 0.042  # 虹膜尖盖：长到 s 0.25（眼珠前极稍后），底半径 = 眼珠在该站位的截面半径
 FRAMES = [0.67, 1.25, 2.05, 3.1, 3.9, 4.75, 6.95]  # 结构框站位（K1 的舱壁）
 EDGES = {}  # 对象名 → 线数据（finish 的输出），build() 写进 meta
 
@@ -39,6 +40,17 @@ def ring(s):
 
 def spine_z(s):
     return ring(s)["R0"][1]
+
+
+def top_profile(s):
+    """剖切面（y = 0）上的外形顶线：背脊，加上眉骨（s 3.9～4.78 隆起）与座舱后的背部整流。"""
+    z = spine_z(s)
+    s0, s1, s2 = BROW
+    if s0 <= s <= s2:
+        z = max(z, lerp(spine_z(s0), spine_z(s1) + 0.1, min(1.0, (s - s0) / (s1 - s0))))
+    if s >= 6.85:
+        z = max(z, Z_TIP + lerp(1.27, 1.285, (s - 6.85) / (S_END - 6.85)))
+    return z
 
 
 FACETS = {"roof": ("R0", "R1"), "outer": ("R1", "R2"), "lower": ("R2", "R3")}
@@ -101,8 +113,8 @@ def section_points(s):
 
 
 def stations():
-    s = [S_FRONT, 0.1]
-    x = 0.2
+    s = [S_FRONT]
+    x = 0.4
     while x < S_END - 1e-6:
         s.append(round(x, 3))
         x += 0.1
@@ -139,77 +151,23 @@ def assign_body_materials(obj):
         f.material_index = 1 if c.z < R["R2"][1] - 2e-3 else 0
 
 
-# —— 烛光窗眼珠：半嵌在机头截面的眼窝里 ——————————————————————————
+# —— 烛光窗眼珠：夹在虹膜尖盖与机身眼窝之间（C2 三视图都画成一个整圆，见 DESIGN 8.6） ——————————————
+def eye_centre():
+    return at(EYE["s"], 0, Z_TIP + EYE["z"])
+
+
+def cap_radius(s):
+    """虹膜尖盖（六瓣合拢）的母线：s 0 处尖、s CAP_S 处半径 CAP_R、底部切线水平（正切卵形）。"""
+    f = min(max(s / CAP_S, 0.0), 1.0)
+    return CAP_R * math.sin(f * math.pi / 2) ** 0.75
+
+
 def eye():
-    c = at(EYE["s"], 0, Z_TIP)
+    c = eye_centre()
     r = EYE["r"]
-    X = Vector((1, 0, 0))
     out = []
 
-    def sphere_cap(name, radius, a0, a1, mat, props, n_az=48, n_el=6, az0=0.0, az1=2 * math.pi, hexagon=False, thick=0.0):
-        bm = bmesh.new()
-        layers = [radius] + ([radius + thick] if thick else [])
-        grids = []
-        for rad in layers:
-            rows = []
-            for i in range(n_el + 1):
-                a = lerp(a0, a1, i / n_el)
-                row = []
-                for k in range(n_az + 1):
-                    phi = lerp(az0, az1, k / n_az)
-                    aa = a
-                    if hexagon and i == 0:
-                        sector = (phi % (math.pi / 3)) - math.pi / 6
-                        aa = math.atan(math.tan(a0) / math.cos(sector))
-                    d = Vector((math.cos(aa), math.sin(aa) * math.cos(phi), math.sin(aa) * math.sin(phi)))
-                    row.append(bm.verts.new(c + d * rad))
-                rows.append(row)
-            grids.append(rows)
-        for rows in grids:
-            for A, B in zip(rows, rows[1:]):
-                for k in range(n_az):
-                    bm.faces.new((A[k], B[k], B[k + 1], A[k + 1]))
-        if thick:
-            # 加厚件：内外两层之间封边
-            inner, outer = grids
-            for i in (0, n_el):
-                for k in range(n_az):
-                    bm.faces.new((inner[i][k], inner[i][k + 1], outer[i][k + 1], outer[i][k]))
-            for k in (0, n_az):
-                for i in range(n_el):
-                    bm.faces.new((inner[i][k], outer[i][k], outer[i + 1][k], inner[i + 1][k]))
-        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-7)
-        o = new_object(name, bm, mat, props)
-        return o
-
-    # 球体（金属）与前半球光窗（通电发琥珀光）
-    bm = bmesh.new()
-    bmesh.ops.create_uvsphere(bm, u_segments=48, v_segments=24, radius=r)
-    bmesh.ops.rotate(bm, verts=bm.verts, cent=(0, 0, 0), matrix=Matrix.Rotation(math.pi / 2, 3, "Y"))
-    bmesh.ops.translate(bm, verts=bm.verts, vec=c)
-    o = new_object("sensor.ball", bm, "carbon", {"skin": "sensor.ball"})
-    EDGES[o.name] = finish(o, bevel=0, curved=True)
-    out.append(o)
-    WIN, APER = math.radians(38), math.radians(14)
-    o = sphere_cap("sensor.window", r * 1.003, 1e-4, WIN, "sensor", {"skin": "sensor.window", "glow": {"key": "sensor", "color": "#ffb060"}})
-    EDGES[o.name] = finish(o, bevel=0, curved=True)
-    out.append(o)
-    # 内透镜：光圈后面一枚凸透镜（玻璃），透过光圈看得见
-    o = sphere_cap("sensor.lens", r * 0.6, 1e-4, math.radians(55), "glass", {"skin": "sensor.lens", "glass": True})
-    o.location = (-r * 0.25, 0, 0)
-    bpy.context.view_layer.update()
-    o.data.transform(Matrix.Translation((-r * 0.25, 0, 0)))
-    o.location = (0, 0, 0)
-    EDGES[o.name] = finish(o, bevel=0, curved=True)
-    out.append(o)
-    # 虹膜六片：有厚度（2 mm）的球面扇片，彼此搭接 10°，内沿合成六边形光圈；每片半径错开 0.4 mm 叠放
-    for k in range(6):
-        az0 = k * math.pi / 3 - math.radians(5)
-        o = sphere_cap(f"sensor.iris.{k}", r * 1.01 + k * 0.0004, APER, WIN, "iris", {"skin": f"sensor.iris.{k}", "lineLevel": "secondary"}, n_az=10, n_el=4, az0=az0, az1=az0 + math.pi / 3 + math.radians(10), hexagon=True, thick=0.002)
-        EDGES[o.name] = finish(o, bevel=0.0005, angle=45)
-        out.append(o)
-    # 多层眼眶：外圈压边环（截面 6 × 4 mm）、内圈台阶环、密封圈（橡胶，圆截面 2.5 mm）
-    def torus(name, centre_x, radius, minor, mat, props, sides=8, segs=64, squash=1.0):
+    def torus(name, centre_s, radius, minor, mat, props, sides=8, segs=72, squash=1.0):
         bm = bmesh.new()
         grid = []
         for i in range(segs):
@@ -218,8 +176,8 @@ def eye():
             row = []
             for k in range(sides):
                 th = 2 * math.pi * k / sides
-                p = Vector((centre_x + minor * math.sin(th) * squash, 0, 0)) + radial * (radius + minor * math.cos(th))
-                row.append(bm.verts.new(c + p))
+                p = Vector((XN - centre_s + minor * math.sin(th) * squash, 0, c.z)) + radial * (radius + minor * math.cos(th))
+                row.append(bm.verts.new(p))
             grid.append(row)
         for i in range(segs):
             A, B = grid[i], grid[(i + 1) % segs]
@@ -228,35 +186,95 @@ def eye():
         o = new_object(name, bm, mat, props)
         EDGES[o.name] = finish(o, bevel=0, curved=True)
         return o
-    rim = r * math.sin(WIN) * 1.02
-    out.append(torus("sensor.bezel", r * math.cos(WIN) * 1.02, rim, 0.0035, "carbon", {"skin": "sensor.bezel", "lineLevel": "secondary"}))
-    out.append(torus("sensor.seal", -0.004, r * 1.02, 0.0028, "rubber", {"skin": "sensor.seal", "lineLevel": "secondary"}))
-    # 眼眶：截面端面上两圈台阶环（凸体扇段拼成，外圈 r 1.18 → 1.32，内圈 r 1.06 → 1.18，各高 4 / 2 mm）
-    for name, r0, r1, h in (("sensor.socket.outer", 1.18, 1.34, 0.004), ("sensor.socket.inner", 1.05, 1.18, 0.002)):
+
+    # 眼珠：深色烟晶玻璃球（整颗是广角光窗，通电透出琥珀微光）
+    bm = bmesh.new()
+    bmesh.ops.create_uvsphere(bm, u_segments=64, v_segments=32, radius=r)
+    bmesh.ops.rotate(bm, verts=bm.verts, cent=(0, 0, 0), matrix=Matrix.Rotation(math.pi / 2, 3, "Y"))
+    bmesh.ops.translate(bm, verts=bm.verts, vec=c)
+    # 只留机身前端面以前的部分（断口藏在密封圈与内圈台阶环后面）：后半球贴着蒙皮内侧，留着它的轮廓线会透过 2 cm 的线条偏移露出来
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if XN - v.co.x > S_FRONT - 0.002], context="VERTS")
+    o = new_object("sensor.ball", bm, "sensor", {"skin": "sensor.ball", "glow": {"key": "sensor", "color": "#ffb060"}})
+    EDGES[o.name] = finish(o, bevel=0, curved=True)
+    out.append(o)
+    # 内透镜：前极一枚凸透镜（虹膜张开时看得见），后面一圈镜筒
+    lens_s = EYE["s"] - r + 0.012
+    bm = bmesh.new()
+    bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=12, radius=0.034)
+    bmesh.ops.scale(bm, verts=bm.verts, vec=(0.45, 1, 1))
+    bmesh.ops.translate(bm, verts=bm.verts, vec=at(lens_s, 0, c.z))
+    o = new_object("sensor.lens", bm, "glass", {"skin": "sensor.lens", "glass": True})
+    EDGES[o.name] = finish(o, bevel=0, curved=True)
+    out.append(o)
+    out.append(torus("sensor.lens.barrel", lens_s + 0.004, 0.036, 0.004, "carbon", {"skin": "sensor.lens.barrel", "lineLevel": "secondary"}))
+    # 虹膜六瓣：合拢时拼成机头尖盖（卵形，s 0 → CAP_S），每瓣厚 2.5 mm，瓣间留 1 mm 缝；瓣根铰在前极的根环上
+    n_s, n_az = 14, 10
+    for k in range(6):
+        gap = 0.0005 / CAP_R
+        a0, a1 = k * math.pi / 3 + gap, (k + 1) * math.pi / 3 - gap
         bm = bmesh.new()
-        n = 48
-        sf = XN - S_FRONT
-        A0 = [bm.verts.new(Vector((sf, math.cos(2 * math.pi * k / n) * r * r0, Z_TIP + math.sin(2 * math.pi * k / n) * r * r0))) for k in range(n)]
-        A1 = [bm.verts.new(Vector((sf, math.cos(2 * math.pi * k / n) * r * r1, Z_TIP + math.sin(2 * math.pi * k / n) * r * r1))) for k in range(n)]
-        B0 = [bm.verts.new(Vector((sf + h, v.co.y, v.co.z))) for v in A0]
-        B1 = [bm.verts.new(Vector((sf + h, v.co.y, v.co.z))) for v in A1]
-        for k in range(n):
-            j = (k + 1) % n
-            bm.faces.new((B0[k], B0[j], B1[j], B1[k]))
-            bm.faces.new((A0[k], A1[k], A1[j], A0[j]))
-            bm.faces.new((A0[k], A0[j], B0[j], B0[k]))
-            bm.faces.new((A1[k], B1[k], B1[j], A1[j]))
-        o = new_object(name, bm, "carbon", {"skin": name, "lineLevel": "secondary"})
-        EDGES[o.name] = finish(o, bevel=0.0006, angle=45)
+        layers = []
+        for off in (0.0, -0.0025):
+            rows = []
+            for i in range(n_s + 1):
+                ss = lerp(0.004, CAP_S, (i / n_s) ** 0.8)
+                rad = max(cap_radius(ss) + off, 0.0008)
+                rows.append([bm.verts.new(at(ss, math.cos(lerp(a0, a1, j / n_az)) * rad, c.z + math.sin(lerp(a0, a1, j / n_az)) * rad)) for j in range(n_az + 1)])
+            layers.append(rows)
+        outer, inner = layers
+        for L, flip in ((outer, False), (inner, True)):
+            for A, B in zip(L, L[1:]):
+                for j in range(n_az):
+                    f = (A[j], B[j], B[j + 1], A[j + 1])
+                    bm.faces.new(tuple(reversed(f)) if flip else f)
+        for i in range(n_s):
+            for j in (0, n_az):
+                bm.faces.new((outer[i][j], inner[i][j], inner[i + 1][j], outer[i + 1][j]))
+        for i in (0, n_s):
+            for j in range(n_az):
+                bm.faces.new((outer[i][j], outer[i][j + 1], inner[i][j + 1], inner[i][j]))
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        o = new_object(f"sensor.iris.{k}", bm, "hull", {"skin": f"sensor.iris.{k}"})
+        EDGES[o.name] = finish(o, bevel=0.0006, curved=True)
         out.append(o)
+    # 尖针：六瓣尖端汇合处一根 3 cm 的钛针（盖住汇合点）
+    o, l = cylinder("sensor.pin", at(-0.012, 0, c.z), at(0.035, 0, c.z), 0.0012, 10, "chrome", {"skin": "sensor.pin", "lineLevel": "secondary"}, r2=cap_radius(0.035) * 0.8)
+    EDGES[o.name] = l
+    out.append(o)
+    # 根环：六瓣铰在这一圈上（铰轴是这圈的切线，Z4 做开合）
+    out.append(torus("sensor.iris.ring", CAP_S - 0.002, CAP_R + 0.0005, 0.0032, "metal", {"skin": "sensor.iris.ring", "lineLevel": "secondary"}))
+    # 多层眼眶：机身前端面上外圈压边环、内圈台阶环，眼珠与眼窝之间一圈橡胶密封圈
+    sf = S_FRONT
+    for name, r0, r1, d0, d1 in (("sensor.socket.outer", r * 1.04, r * 1.13, -0.008, 0.004), ("sensor.socket.inner", r * 0.985, r * 1.04, -0.004, 0.012)):
+        bm = bmesh.new()
+        n = 72
+        rings_ = []
+        for rad, ds in ((r0, d0), (r1, d0), (r1, d1), (r0, d1)):
+            rings_.append([bm.verts.new(Vector((XN - sf - ds, math.cos(2 * math.pi * k / n) * rad, c.z + math.sin(2 * math.pi * k / n) * rad))) for k in range(n)])
+        for A, B in zip(rings_, rings_[1:] + rings_[:1]):
+            for k in range(n):
+                j = (k + 1) % n
+                bm.faces.new((A[k], A[j], B[j], B[k]))
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        o = new_object(name, bm, "carbon", {"skin": name, "lineLevel": "secondary"})
+        EDGES[o.name] = finish(o, bevel=0.0008, angle=45)
+        out.append(o)
+    seal_r = math.sqrt(r * r - (EYE["s"] - sf + 0.006) ** 2) + 0.002
+    out.append(torus("sensor.seal", sf - 0.006, seal_r, 0.0026, "rubber", {"skin": "sensor.seal", "lineLevel": "secondary"}))
     return out
 
 
 def socket_cutter():
-    """眼窝：比眼珠大 4 mm 的球，从机身前端挖掉（布尔差）。"""
+    """眼窝：机身前端面上一个浅圆坑（半径 = 眼珠在端面处的截面 + 3 mm，深 1.5 cm），眼珠的后部藏在里面。"""
+    c = eye_centre()
+    rad = math.sqrt(EYE["r"] ** 2 - (S_FRONT - EYE["s"]) ** 2) + 0.003
     bm = bmesh.new()
-    bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=16, radius=EYE["r"] + 0.004)
-    bmesh.ops.translate(bm, verts=bm.verts, vec=at(EYE["s"], 0, Z_TIP))
+    n = 64
+    for ds in (-0.02, 0.015):
+        for k in range(n):
+            a = 2 * math.pi * k / n
+            bm.verts.new(at(S_FRONT + ds, math.cos(a) * rad, c.z + math.sin(a) * rad))
+    bmesh.ops.convex_hull(bm, input=list(bm.verts))
     return new_object("cut.socket", bm)
 
 
@@ -658,24 +676,33 @@ def seams():
     def rect(facet, s0, s1, t0, t1, side, lift=0.0015, level="secondary"):
         line([surface(s, facet, t, side, lift) for s, t in ((s0, t0), (s1, t0), (s1, t1), (s0, t1))], level=level, closed=True)
 
-    # 结构框：在屋面、外上、下切面上的环缝（L2，安静区的低对比细线）
-    for s in FRAMES[:-2]:
-        line(around(s))
-    # 纵缝：屋面中线（长桁）、下切面中线
+    # C2 量出来的分缝（俯视 66 px/m、侧视 42.4 px/m）：光窗后一圈环缝 s 0.62；屋面两道向前的 V 形缝（s 1.07→1.27、2.84→3.09，
+    # 中线处在前）；屋面口盖 s 3.1～4.06（外沿到 t 0.73）；外上切面竖缝 s 2.62、3.54。其余是 K1 结构框处的低对比环缝（L2）。
+    line(around(0.62), level="structure")
+    for s0, s1 in ((1.07, 1.27), (2.84, 3.09)):
+        for side in (1, -1):
+            line([surface(s0, "roof", 0.0, side, 0.0015), surface(s1, "roof", 1.0, side, 0.0015)], level="structure")
+            line([surface(s1, f, t, side, 0.0015) for f, t in (("outer", 0.0), ("outer", 1.0), ("lower", 0.5), ("lower", 1.0))])
     for side in (1, -1):
-        for f, t in (("roof", 0.5), ("lower", 0.55)):
-            line([surface(s, f, t, side, 0.0015) for s in (FRAMES[0], BROW[0])])
-    # 口盖：传感器舱门（s 0.67～1.25 屋面）、航电舱两扇大门（外上 + 屋面下半，s 2.05～3.1、3.1～3.9），
-    # 姿控喷口检修板（外上切面 s 1.28～1.7），前起落架舱门（腹底 s 4.1～5.7，左右两扇，L1）
+        rect("roof", 3.1, 4.06, 0.0, 0.73, side, level="structure")
+        for sx in (2.62, 3.54):
+            line([surface(sx, "outer", t, side, 0.0015) for t in (0.0, 1.0)])
+    for sx in (1.5, 2.2, 3.9):
+        line(around(sx))
+    # 背脊两侧一条窄条（C2 俯视里贯穿到座舱前的两道细线，离中线 ±4.5 cm）
     for side in (1, -1):
-        rect("roof", 0.7, 1.22, 0.15, 0.85, side, level="structure")
-        rect("roof", 2.08, 3.07, 0.55, 0.95, side, level="structure")
-        rect("roof", 3.13, 3.87, 0.55, 0.95, side, level="structure")
-        rect("outer", 2.08, 3.07, 0.1, 0.9, side)
+        pts = []
+        for sx in (0.62, 1.07, 2.0, 2.84, 3.1):
+            t = 0.045 / max(ring(sx)["R1"][0], 1e-3)
+            pts.append(surface(sx, "roof", t, side, 0.0015))
+        line(pts)
+    # 口盖：传感器舱门（屋面 s 0.7～1.0）、姿控喷口检修板（外上切面 s 1.28～1.7）、下切面检修口（s 2.1～3.0），前起落架舱门（腹底 s 4.1～5.8，左右两扇，L1）
+    for side in (1, -1):
+        rect("roof", 0.68, 1.0, 0.25, 0.85, side, level="structure")
         rect("outer", 1.28, 1.7, 0.08, 0.92, side)
         rect("lower", 2.1, 3.0, 0.1, 0.5, side)
-    line([surface(s, "belly", t, side, 0.0015) for side in (1,) for s, t in ((4.1, 1.0), (5.7, 1.0), (5.7, 0.1), (4.1, 0.1))], level="structure", closed=True)
-    line([surface(s, "belly", t, -1, 0.0015) for s, t in ((4.1, 1.0), (5.7, 1.0), (5.7, 0.1), (4.1, 0.1))], level="structure", closed=True)
+    line([surface(s, "belly", t, 1, 0.0015) for s, t in ((4.1, 1.0), (5.8, 1.0), (5.8, 0.1), (4.1, 0.1))], level="structure", closed=True)
+    line([surface(s, "belly", t, -1, 0.0015) for s, t in ((4.1, 1.0), (5.8, 1.0), (5.8, 0.1), (4.1, 0.1))], level="structure", closed=True)
     # 朱红线（accent）：沿 R1 脊线 s 4.0～7.6，通电扫亮（与嵌条同一条 u）
     for side in (1, -1):
         def ridge(s, side=side):
@@ -718,16 +745,17 @@ def build():
     t, n_tiles = tiles()
     objs += t
     objs += stand()
-    c = at(EYE["s"], 0, Z_TIP)
+    c = eye_centre()
     meta = {
         "offset": [-(XN - S_END / 2), 0, 0],
         "seams": seams(),
         "edges": dict(EDGES),
-        "landmarks": {"sensor": list(c), "canopy": list(at(5.9, 0, Z_TIP + 1.2)), "brow": list(at(4.6, 0, spine_z(4.6) + 0.05)), "rcs.l": list(surface(1.47, "outer", 0.5)[0]), "tip": list(at(0, 0, Z_TIP)), "keel.end": list(at(S_END, 0, ring(S_END)["R3"][1]))},
+        "landmarks": {"sensor": list(c), "canopy": list(at(5.9, 0, Z_TIP + 1.2)), "brow": list(at(4.6, 0, spine_z(4.6) + 0.05)), "rcs.l": list(surface(1.47, "outer", 0.5)[0]), "tip": list(at(0, 0, Z_TIP + EYE["z"])), "keel.end": list(at(S_END, 0, ring(S_END)["R3"][1]))},
         "joints": [],
         "masks": [ball_mask(c, EYE["r"] * 0.75)],
         "focus": {"nose": list(c), "canopy": list(at(5.6, 0, Z_TIP + 1.0))},
         "tiles": n_tiles,
+        "panel_cuts": [0.62, 1.07, 1.5, 2.2, 2.84, 3.1, 3.9, 4.06, 4.8, 5.85, 6.95],
         "callouts": [
             {"n": 1, "label": "机头光窗（虹膜）", "at": list(c)},
             {"n": 5, "label": "眉骨", "at": list(at(4.5, 0, spine_z(4.5) + 0.06))},

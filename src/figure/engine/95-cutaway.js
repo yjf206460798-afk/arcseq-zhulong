@@ -7,7 +7,7 @@
   const cutaway = { on: false, loading: null, modules: new Set() };
   const callouts = [...(DATA.callouts ?? [])];
   window.__arcseqModule = (name, data) => {
-    const parts = parseGlb(b64(data.glb), data.edges ?? {}).map((p) => ({ ...p, show: p.show ?? "cutaway" }));
+    const parts = meshParts(data).map((p) => ({ ...p, show: p.show ?? "cutaway" }));
     const first = DATA.parts.length;
     DATA.parts.push(...parts);
     buildMeshes(parts, first);
@@ -42,6 +42,8 @@
     cutaway.on = !!on;
     showState.cutaway = cutaway.on;
     for (const layer of airLayers) if (layer.cut) layer.clip(cutaway.on);
+    // 剖视时座舱通电（K1 里屏幕墙与平视显示器是亮的）；作品可在 DATA.cutawayPower 里改
+    for (const [key, v] of Object.entries(DATA.cutawayPower ?? { cockpit: 0.85, "cockpit.red": 0.5 })) powerOf(key).value = cutaway.on ? v : 0;
     const button = document.querySelector("[data-cutaway]");
     if (button) button.setAttribute("aria-pressed", String(cutaway.on));
     refreshShadowNow();

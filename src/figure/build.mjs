@@ -8,6 +8,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { engineScript, fitView, pageHtml, pointsOf, r4 } from "./engine/pack.mjs";
 import { glbParts } from "./engine/glb.mjs";
+import { packMesh } from "./engine/meshpack.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..", "..");
@@ -16,6 +17,8 @@ const option = (name, fallback) => argv.find((a) => a.startsWith(`--${name}=`))?
 const VARIANT = option("variant", "glb");
 /** --assets=dist/fast：用 blender/build.py --fast 的产物预览（不烘焙）。 */
 const ASSETS = join(ROOT, option("assets", "assets"));
+/** --look=metal：B 画法（参考图那种金属质感：工作室环境光 + 烘焙的法线 / 粗糙度贴图，线条降一级）；默认 lines（A：线条 + 五档明暗）。 */
+const LOOK = option("look", "lines");
 
 /** 舞台画幅（CSS 宽高比 1000 : 670）与相机俯仰 30°（FIG.01 定，固定审图机位 30°/120°/210°/300°）。 */
 const VIEW = { width: 1000, height: 670 };
@@ -38,19 +41,20 @@ async function geometry() {
   if (!existsSync(glb)) throw new Error("assets/zhulong.glb 不存在：先运行 .venv/bin/python blender/build.py");
   const M = JSON.parse(readFileSync(meta, "utf8"));
   const detail = {};
-  for (const [name, spec] of Object.entries(M.detail ?? {})) detail[name] = { ...spec, src: `data:image/png;base64,${readFileSync(join(ASSETS, spec.file)).toString("base64")}` };
-  // 母版的硬边：每个零件一串 Float32（base64），浏览器端随 GLB 一起解（engine/05-glb.js）
-  const edges = (names) => Object.fromEntries(Object.entries(M.edges ?? {}).filter(([k]) => names.has(k)).map(([k, v]) => [k, Buffer.from(Float32Array.from(v).buffer).toString("base64")]));
+  for (const [name, spec] of Object.entries(M.detail ?? {})) {
+    if (spec.look && spec.look !== LOOK) continue; // B 画法的贴图只进 B 版页面
+    detail[name] = { ...spec, src: `data:image/png;base64,${readFileSync(join(ASSETS, spec.file)).toString("base64")}` };
+  }
+  // 零件与母版硬边一起打成量化网格包（engine/meshpack.mjs），浏览器端 engine/05-glb.js 解
   const ext = glbParts(glb);
-  const extNames = new Set(ext.map((p) => p.name.split("#")[0]));
   const interiorGlb = join(ASSETS, "zhulong-interior.glb");
   const inner = existsSync(interiorGlb) ? glbParts(interiorGlb) : [];
-  const innerNames = new Set(inner.map((p) => p.name.split("#")[0]));
+  const edgeOf = (name) => M.edges?.[name] ?? null;
   return {
     parts: [],
     fitParts: ext,
-    mesh: { glb: readFileSync(glb).toString("base64"), edges: edges(extNames) },
-    modules: inner.length ? { interior: { glb: readFileSync(interiorGlb).toString("base64"), edges: edges(innerNames) } } : {},
+    mesh: { pack: packMesh(ext, edgeOf) },
+    modules: inner.length ? { interior: { pack: packMesh(inner, edgeOf) } } : {},
     tris: { exterior: ext.reduce((n, p) => n + p.f.length / 4, 0), interior: inner.reduce((n, p) => n + p.f.length / 4, 0) },
     seams: M.seams ?? [], landmarks: M.landmarks ?? {}, joints: M.joints ?? [], offset: M.offset ?? [0, 0, 0], detail, focus: M.focus, masks: M.masks ?? [], callouts: M.callouts ?? [],
   };
@@ -100,6 +104,9 @@ const PALETTE = {
   suit: ["#2c2e2a", "#333530", "#3b3d37", "#43453f", "#4c4e47"],
   helmet: ["#3a3d3e", "#434748", "#4d5152", "#575b5d", "#626768"],
   section: ["#56605f", "#5d6766", "#646e6d", "#6b7574", "#727c7b"],
+  /** 铭牌（设备箱上的浅色小牌）、警示件（弹射拉环等，暗琥珀） */
+  label: ["#4c514f", "#555a58", "#5f6461", "#696e6b", "#737875"],
+  hazard: ["#3a2a14", "#453217", "#513a1b", "#5d431f", "#6a4c23"],
   inside: "#0d1012",
   deck: ["#111619", "#13181b", "#151b1e", "#182023", "#1b2124"],
   bump: "#0a0c0d",
@@ -118,7 +125,19 @@ const MATERIALS = {
   void: { tones: "body", shade: "hull", mouth: true },
   round: { tones: "body", shade: "round" },
 };
-for (const k of ["frame", "metal", "chrome", "rubber", "iris", "vermilion", "stand", "structure", "avionics", "panel", "pipe", "cable", "tank", "screen", "seat", "suit", "helmet", "section"]) MATERIALS[k] = { tones: k, shade: ["metal", "chrome", "rubber", "pipe", "cable", "tank", "helmet", "suit"].includes(k) ? "round" : "facet" };
+for (const k of ["frame", "metal", "chrome", "rubber", "iris", "vermilion", "stand", "structure", "avionics", "panel", "pipe", "cable", "tank", "screen", "seat", "suit", "helmet", "section", "label", "hazard"]) MATERIALS[k] = { tones: k, shade: ["metal", "chrome", "rubber", "pipe", "cable", "tank", "helmet", "suit"].includes(k) ? "round" : "facet" };
+/** B 画法的材质参数：[金属度, 粗糙度, 基色增益]（基色取色板第 4 档，换到线性空间再乘增益）。 */
+const PBR = {
+  hull: [0.55, 0.38, 4.5], belly: [0.4, 0.5, 4.0], carbon: [0.2, 0.35, 2.4], glass: [0.0, 0.05, 1.0], interior: [0.3, 0.6, 2.6], sensor: [0.0, 0.08, 1.6],
+  void: [0.2, 0.6, 1.0], round: [0.5, 0.45, 2.6], frame: [0.7, 0.35, 2.6], metal: [0.9, 0.3, 2.6], chrome: [1.0, 0.12, 2.6], rubber: [0.0, 0.85, 1.6],
+  iris: [0.6, 0.35, 2.6], vermilion: [0.2, 0.4, 1.7], stand: [0.5, 0.5, 2.0], structure: [0.75, 0.38, 2.4], avionics: [0.45, 0.45, 2.5], panel: [0.4, 0.5, 2.4],
+  pipe: [0.85, 0.3, 2.4], cable: [0.1, 0.7, 2.0], tank: [0.85, 0.28, 2.3], screen: [0.0, 0.1, 1.5], seat: [0.2, 0.7, 2.4], suit: [0.15, 0.65, 2.5],
+  helmet: [0.4, 0.25, 2.4], section: [0.6, 0.4, 1.6], label: [0.1, 0.5, 2.0], hazard: [0.2, 0.5, 2.2],
+};
+for (const [k, m] of Object.entries(MATERIALS)) {
+  m.pbr = PBR[k] ?? [0.3, 0.5, 2.4];
+  if (m.detail === "skin" && G.detail.skinPbr) m.pbrMap = "skinPbr";
+}
 /**
  * 线条分级（FIG.01 G2，VISUAL_TARGET：L0 0.6～0.9 / L1 约 0.5 / L2 0.35～0.5 px）。
  * accents：作品标志色的线（朱红棱线）：线宽同主描边、偏暗不荧光；idle 为未通电时的亮度（三四成），通电后由机头沿线点亮并进发光缓冲。
@@ -222,6 +241,8 @@ const DATA = {
   masks: G.masks ?? [],
   focus: G.focus ?? {},
   detail: G.detail,
+  look: LOOK,
+  metal: { env: 1, lines: [0.55, 0.45, 0.3] },
   controls: CONTROLS,
   pairs: [],
   shows: SHOWS,

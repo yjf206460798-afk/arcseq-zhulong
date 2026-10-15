@@ -84,4 +84,47 @@
     for (const root of json.scenes[json.scene ?? 0].nodes) visit(root);
     return parts;
   }
-  if (DATA.mesh) DATA.parts = [...DATA.parts, ...parseGlb(b64(DATA.mesh.glb), DATA.mesh.edges)];
+  /** 量化网格包（engine/meshpack.mjs）→ 零件：解回浮点坐标、法线、uv、AO、索引与母版硬边。 */
+  function unpackMesh(pack) {
+    const bytes = b64(pack.bin);
+    const buf = bytes.buffer;
+    let at = bytes.byteOffset;
+    const take = (Type, count) => {
+      const arr = new Type(buf.slice(at, at + count * Type.BYTES_PER_ELEMENT));
+      at += (count * Type.BYTES_PER_ELEMENT + 3) & ~3;
+      return arr;
+    };
+    return pack.head.map((h) => {
+      const P = take(Uint16Array, h.n * 3);
+      const v = new Float32Array(h.n * 3);
+      for (let i = 0; i < v.length; i++) v[i] = h.lo[i % 3] + (P[i] / 65535) * h.ext[i % 3];
+      const part = { name: h.name, ...h.props, v };
+      if (h.has.includes("n")) {
+        const N = take(Int8Array, h.n * 3);
+        part.n = Float32Array.from(N, (x) => x / 127);
+      }
+      if (h.has.includes("u")) {
+        const U = take(Uint16Array, h.n * 2);
+        part.uv = new Float32Array(h.n * 2);
+        for (let i = 0; i < part.uv.length; i++) part.uv[i] = h.uvLo[i % 2] + (U[i] / 65535) * h.uvExt[i % 2];
+      }
+      if (h.has.includes("a")) part.ao = Float32Array.from(take(Uint8Array, h.n), (x) => x / 255);
+      const I = take(h.n < 65536 ? Uint16Array : Uint32Array, h.t * 3);
+      const f = new Uint32Array(h.t * 4);
+      for (let t = 0; t < h.t; t++) f.set([3, I[t * 3], I[t * 3 + 1], I[t * 3 + 2]], t * 4);
+      part.f = f;
+      if (h.has.includes("e")) {
+        const EP = take(Uint16Array, h.e * 6);
+        const EN = take(Int8Array, h.e * 6);
+        const E = new Float32Array(h.e * 12);
+        for (let k = 0; k < h.e; k++) {
+          for (let j = 0; j < 6; j++) E[k * 12 + j] = h.lo[j % 3] + (EP[k * 6 + j] / 65535) * h.ext[j % 3];
+          for (let j = 0; j < 6; j++) E[k * 12 + 6 + j] = EN[k * 6 + j] / 127;
+        }
+        part.edges = E;
+      }
+      return part;
+    });
+  }
+  const meshParts = (m) => (m.pack ? unpackMesh(m.pack) : parseGlb(b64(m.glb), m.edges));
+  if (DATA.mesh) DATA.parts = [...DATA.parts, ...meshParts(DATA.mesh)];

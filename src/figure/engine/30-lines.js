@@ -200,7 +200,11 @@
     uniform float uIdle;
     uniform float uGlowPass;
     uniform vec3 uGlowColor;
+    uniform float uCut;
+    varying float vSide;
     void main() {
+      // 剖视：cut 层切掉剖切面近侧（零件坐标 y > 0）
+      if (uCut > 0.5 && vSide > 0.0015) discard;
       // 覆盖率 = 像素（宽 1）与线（宽 2·vHalf）在法向上的重叠长度：一维盒式滤波的精确积分。细于 1 像素的线落在两个像素之间时，
       // 两个像素的覆盖率之和恒等于线宽——线转动时亮度不随亚像素位置起伏（FIG.01 的近似式在 0.42 px 线上有约 ±15% 的闪）
       float cover = clamp(min(vDist + 0.5, vHalf) - max(vDist - 0.5, -vHalf), 0.0, 1.0);
@@ -224,6 +228,8 @@
   const QUAD = new THREE.Float32BufferAttribute([0, -1, 0, 1, -1, 0, 1, 1, 0, 0, -1, 0, 1, 1, 0, 0, 1, 0], 3);
   const lineShared = { uGlowPass: { value: 0 } };
   const lineCut = { value: 0 };
+  /** 画法对线条的影响：B（metal）线条降一级（各级不透明度乘 DATA.metal.lines）；后加载的模块线层也按当前画法建。 */
+  const lineLook = { levels: DATA.look === "metal" ? DATA.metal.lines : [1, 1, 1] };
   const lineLayers = [];
   function lineLayer(list, parent, { style = STYLE, accent = false } = {}) {
     const count = list.kind.length;
@@ -262,7 +268,7 @@
       uTint: { value: new THREE.Color() },
       uTintMix: { value: 0 },
       uScale: { value: 1 },
-      uLevel: { value: new THREE.Vector3(1, 1, 1) },
+      uLevel: { value: new THREE.Vector3(...(accent ? [1, 1, 1] : lineLook.levels)) },
       uAccent: { value: accent ? 1 : 0 },
       uPower: accent ? powerOf(accent.key) : { value: 0 },
       uSweep: accent ? powerOf(`${accent.key}.sweep`) : { value: 0 },
@@ -281,6 +287,7 @@
     const inverse = new THREE.Matrix4();
     const cls = new Uint8Array(count);
     const seen = { x: 0, y: 0, z: 0, demote: null, low: null, force: true };
+    let contourBase = STYLE.contourBias;
     const layer = {
       mesh,
       accent: !!accent,
@@ -288,7 +295,7 @@
       cap: 0,
       width: style.width,
       contourBias(m) {
-        uniforms.uContourBias.value = (2 * m) / (camera.far - camera.near);
+        contourBase = m;
       },
       scale(k) {
         uniforms.uScale.value = k;
@@ -306,6 +313,10 @@
       },
       /** 视向换到零件所在坐标系，逐条定级，按级别写索引。 */
       update(force = false) {
+        // 线条的深度偏移随取景放大缩小（特写 14× 时 2 cm 的偏移会让线透过贴着蒙皮的零件露出来）
+        const k = 1 / Math.max(camera.zoom, 1);
+        uniforms.uBias.value = (2 * Math.max(STYLE.bias * k, 0.0015)) / (camera.far - camera.near);
+        uniforms.uContourBias.value = (2 * Math.max(contourBase * k, 0.01)) / (camera.far - camera.near);
         const demote = this.demote;
         uniforms.uPVM.value.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(mesh.matrixWorld);
         view.copy(VIEW).applyMatrix4(inverse.copy(mesh.matrixWorld).invert().setPosition(0, 0, 0)).normalize();

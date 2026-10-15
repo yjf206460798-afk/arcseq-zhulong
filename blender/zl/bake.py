@@ -29,7 +29,8 @@ def _cycles(samples):
 
 def _select(objs, active):
     for o in bpy.context.view_layer.objects:
-        o.select_set(False)
+        if o is not None:  # 布尔后删掉的切割体在视图层缓存里可能留成 None
+            o.select_set(False)
     for o in objs:
         o.select_set(True)
     bpy.context.view_layer.objects.active = active
@@ -45,11 +46,14 @@ def _loose(objs):
     return [o for o in objs if o.get("aoOccluder") is False]
 
 
-def vertex_ao(objs, samples=64):
+def vertex_ao(objs, samples=64, hide=()):
+    """顶点 AO：hide 里的对象（另一套模块，如剖视内部）烘焙时藏起来，不当遮挡物。"""
     sc = _cycles(samples)
     voids = _voids(objs)
     loose = _loose(objs)
     meshes = [o for o in objs if o.type == "MESH" and o not in voids and o not in loose]
+    for o in hide:
+        o.hide_render = True
     for o in meshes + voids:
         attr = o.data.color_attributes.get("ao") or o.data.color_attributes.new("ao", "FLOAT_COLOR", "POINT")
         o.data.color_attributes.active_color = attr
@@ -73,6 +77,8 @@ def vertex_ao(objs, samples=64):
         bpy.ops.object.bake(type="AO")
     sc.render.bake.target = "IMAGE_TEXTURES"
     for o in voids:
+        o.hide_render = False
+    for o in hide:
         o.hide_render = False
 
 
@@ -105,10 +111,11 @@ def _pixels(image):
     return a.reshape(image.size[1], image.size[0], 4)
 
 
-def detail_texture(objs, meta, path, size=2048):
+def detail_texture(objs, meta, assets, size=2048, hide=()):
+    """机身蒙皮的两张细节贴图（见 detail.py）：zhulong-skin.png（A/B 共用）与 zhulong-skin-pbr.png（B 画法）。返回 meta["detail"]。"""
     body = next(o for o in objs if o.name == "nose.body")
     _cycles(1)
-    # UV：按角度展开（切面是平面，岛就是切面），岛间留 2 个纹素
+    # UV：按角度展开（切面是平面，岛就是切面），岛间留 2.5 个纹素
     _select([body], body)
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_all(action="SELECT")
@@ -140,11 +147,12 @@ def detail_texture(objs, meta, path, size=2048):
     mat.node_tree.nodes.active = tex
     for i in range(len(body.data.materials)):
         body.data.materials[i] = mat
-    for o in _voids(objs) + _loose(objs):
+    hidden = _voids(objs) + _loose(objs) + list(hide)
+    for o in hidden:
         o.hide_render = True
     _select([body], body)
     bpy.ops.object.bake(type="AO", margin=0)
-    for o in _voids(objs) + _loose(objs):
+    for o in hidden:
         o.hide_render = False
     for i, m in enumerate(saved):
         body.data.materials[i] = m
@@ -153,17 +161,22 @@ def detail_texture(objs, meta, path, size=2048):
     P = _pixels(imgs["pos"])
     N = _pixels(imgs["nor"])
     A = _pixels(imgs["ao"])
-    from . import detail
-
-    rgb, valid = detail.paint(P, N, A, meta)
-    rgb = detail.dilate(rgb, valid, 6)
     from PIL import Image
 
+    from . import detail
+
+    skin, pbr, valid = detail.paint(P, N, A, meta)
+    skin = detail.dilate(skin, valid, 6, (0.5, 0.0, 1.0))
+    pbr = detail.dilate(pbr, valid, 6, (0.5, 0.5, 1.0, 0.55))
     # Blender 图像第 0 行在底部；glTF UV 的 v 向下（导出器已翻转 v），PNG 第 0 行在顶部：上下翻转后写出
-    Image.fromarray(np.flipud(np.clip(rgb * 255 + 0.5, 0, 255).astype(np.uint8)), "RGB").save(path, optimize=True)
+    Image.fromarray(np.flipud(np.clip(skin * 255 + 0.5, 0, 255).astype(np.uint8)), "RGB").save(os.path.join(assets, "zhulong-skin.png"), optimize=True)
+    Image.fromarray(np.flipud(np.clip(pbr * 255 + 0.5, 0, 255).astype(np.uint8)), "RGBA").save(os.path.join(assets, "zhulong-skin-pbr.png"), optimize=True)
     for img in imgs.values():
         bpy.data.images.remove(img)
-    return {"file": os.path.basename(path), "k": [0.55, 0.38, 0.6], "paint": "#8a9296"}
+    return {
+        "skin": {"file": "zhulong-skin.png", "k": [1.0, 0.38, 0.6], "paint": "#8a9296", "mid": True},
+        "skinPbr": {"file": "zhulong-skin-pbr.png", "look": "metal"},
+    }
 
 
 def export(objs, path):

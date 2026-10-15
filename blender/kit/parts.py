@@ -143,9 +143,10 @@ def _cuboid(bm, centre, size, rot=None):
     bmesh.ops.convex_hull(bm, input=vs)
 
 
-def box(name, centre, size, rot=None, material="avionics", face="+x", panel=True, handles=True, plugs=4, props=None, bevel=0.012):
+def box(name, centre, size, rot=None, material="avionics", face="+x", panel=True, handles=True, plugs=4, props=None, bevel=0.012, split=0, label=False, corner_bolts=False, grille=0):
     """设备箱：size = (长 x, 宽 y, 高 z)；face 为正面朝向（"+x" "-x" "+y" "-y" "+z"）。
-    正面：内凹 8 mm 的面板（四周留 14% 边）、两只把手（细横杆 + 两个支脚）、下沿一排插头（圆柱）。"""
+    正面：内凹 8 mm 的面板（四周留 14% 边；split=n 时横向分成 n+1 扇门）、两只把手（细横杆 + 两个支脚）、下沿一排插头（圆柱）；
+    label：左上角一块浅色铭牌；corner_bolts：四角螺栓；grille=n：面板下部 n 条横向散热格栅。"""
     centre = Vector(centre)
     R = rot or Matrix.Identity(3)
     bm = bmesh.new()
@@ -167,16 +168,33 @@ def box(name, centre, size, rot=None, material="avionics", face="+x", panel=True
     wu, ws = (w2, w1) if up is e2 else (w1, w2)
     fc = centre + n * half
     if panel and min(w1, w2) > 0.06:
-        bm = bmesh.new()
-        pts = []
-        for a in (-1, 1):
-            for b in (-1, 1):
-                for d in (0.002, -0.008):
-                    pts.append(fc + side * a * ws * 0.36 + up * b * wu * 0.36 + n * d)
-        vs = [bm.verts.new(p) for p in pts]
-        bmesh.ops.convex_hull(bm, input=vs)
-        o = new_object(name + ".panel", bm, "panel", props)
-        extra.append((o, finish(o, bevel=0.002)))
+        doors = split + 1
+        gap = 0.006
+        for k in range(doors):
+            s0 = -0.36 + 0.72 * k / doors + (gap / ws if k else 0)
+            s1 = -0.36 + 0.72 * (k + 1) / doors - (gap / ws if k < doors - 1 else 0)
+            bm = bmesh.new()
+            pts = []
+            for a in (s0, s1):
+                for b in (-1, 1):
+                    for d in (0.002, -0.008):
+                        pts.append(fc + side * a * ws + up * b * wu * 0.36 + n * d)
+            vs = [bm.verts.new(p) for p in pts]
+            bmesh.ops.convex_hull(bm, input=vs)
+            o = new_object(name + f".panel{k}", bm, "panel", props)
+            extra.append((o, finish(o, bevel=0.002)))
+    if label and min(w1, w2) > 0.05:
+        c = fc + side * (-ws * 0.2) + up * wu * 0.24 + n * 0.0025
+        pts = [c + side * a * ws * 0.13 + up * b * wu * 0.06 + n * d for a in (-1, 1) for b in (-1, 1) for d in (-0.001, 0.0008)]
+        extra.append(hull(name + ".label", pts, "label", {**(props or {}), "lineLevel": "secondary"}, bevel=0.0))
+    if corner_bolts and min(w1, w2) > 0.05:
+        rb = max(0.0035, min(ws, wu) * 0.025)
+        for b in (-1, 1):
+            extra.append(bolts(name + f".bolts{'bt'[b > 0]}", fc + side * -ws * 0.43 + up * b * wu * 0.43, fc + side * ws * 0.43 + up * b * wu * 0.43, 2, rb, n, props=props))
+    for k in range(grille):
+        c = fc + up * (-wu * 0.3 + k * 0.022) + side * ws * 0.15 + n * 0.0015
+        pts = [c + side * a * ws * 0.15 + up * b * 0.004 + n * d for a in (-1, 1) for b in (-1, 1) for d in (-0.002, 0.001)]
+        extra.append(hull(name + f".grille{k}", pts, "void", {**(props or {}), "lineLevel": "secondary"}, bevel=0.0))
     if handles and ws > 0.12:
         for a in (-1, 1):
             p = fc + side * a * ws * 0.42
@@ -261,4 +279,190 @@ def frame(name, ring, depth=0.04, width=0.06, material="structure", props=None):
             pts += [p + Vector((depth / 2, 0, 0)), p - Vector((depth / 2, 0, 0))]
         o, l = hull(f"{name}.{k}", pts, material, {"skin": name, **(props or {})}, bevel=0.004)
         out.append((o, l))
+    return out
+
+
+# —— 第二批（复刻样板 K1 内部）：合并、螺栓排、型材梁、阀、泵、罐、回转体、椭球、角码 ——————————————
+
+
+def merge(name, items, material=None, props=None):
+    """把多个 (对象, 线) 合成一个对象（同材质的成排小件：螺栓、卡箍、筋……），线数据拼接。对象都是单位变换、世界坐标。"""
+    items = [it for it in items if it and it[0] is not None]
+    bm = bmesh.new()
+    for o, _ in items:
+        bm.from_mesh(o.data)
+    mat = material or (items[0][0].data.materials[0].name if items[0][0].data.materials else "interior")
+    lines = [x for _, l in items for x in l]
+    curved = any(o.get("curved") for o, _ in items)
+    for o, _ in items:
+        me = o.data
+        bpy.data.objects.remove(o, do_unlink=True)
+        bpy.data.meshes.remove(me)
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    obj = bpy.data.objects.new(name, me)
+    obj.data.materials.append(_material(mat))
+    bpy.context.scene.collection.objects.link(obj)
+    for k, v in (props or {}).items():
+        obj[k] = v
+    if curved:
+        obj["curved"] = True
+    return obj, lines
+
+
+def bolts(name, a, b, n, r, normal, material="metal", props=None, h=None, ends=True):
+    """一排六角螺栓头：a→b 上等距 n 个（ends=False 时两端各让半格），头朝 normal、外接圆半径 r、高 h（默认 0.6r）。合成一个对象。"""
+    a, b, w = Vector(a), Vector(b), Vector(normal).normalized()
+    h = 0.6 * r if h is None else h
+    bm = bmesh.new()
+    for k in range(n):
+        f = (k / (n - 1) if n > 1 else 0.5) if ends else (k + 0.5) / n
+        p = a.lerp(b, f)
+        A = _ring(bm, p - w * 0.001, w, r, 6, math.pi / 6)
+        B = _ring(bm, p + w * h, w, r, 6, math.pi / 6)
+        _bridge(bm, A, B)
+        _cap(bm, A, flip=True)
+        _cap(bm, B)
+    obj = new_object(name, bm, material, {"lineLevel": "secondary", **(props or {})})
+    return obj, finish(obj, bevel=0.0, angle=40)
+
+
+def beam(name, a, b, w, h, up, kind="I", t=None, material="structure", props=None, holes=0, bolt_r=0.006):
+    """型材梁 a→b：截面宽 w（沿 side）、高 h（沿 up）、壁厚 t（默认 0.12·min(w, h)）。
+    kind：I（工字）、channel（槽，开口朝 −side）、angle（角材，两肢朝 −up、−side）、box（矩形管）。holes>0 时上翼缘一排螺栓。返回 [(obj, lines)…]。"""
+    a, b = Vector(a), Vector(b)
+    d = (b - a).normalized()
+    up = Vector(up)
+    up = (up - d * up.dot(d)).normalized()
+    side = d.cross(up).normalized()
+    t = t or 0.12 * min(w, h)
+    out = []
+
+    def slab(tag, c0, c1, s0, s1):
+        """截面里一块矩形（side 方向 s0…s1，up 方向 c0…c1）沿梁拉伸。"""
+        pts = [p + side * s + up * c for p in (a, b) for s in (s0, s1) for c in (c0, c1)]
+        o, l = hull(f"{name}.{tag}", pts, material, props, bevel=min(0.003, t * 0.3))
+        out.append((o, l))
+
+    if kind == "I":
+        slab("web", -h / 2 + t, h / 2 - t, -t / 2, t / 2)
+        slab("top", h / 2 - t, h / 2, -w / 2, w / 2)
+        slab("bot", -h / 2, -h / 2 + t, -w / 2, w / 2)
+    elif kind == "channel":
+        slab("web", -h / 2, h / 2, w / 2 - t, w / 2)
+        slab("top", h / 2 - t, h / 2, -w / 2, w / 2 - t)
+        slab("bot", -h / 2, -h / 2 + t, -w / 2, w / 2 - t)
+    elif kind == "angle":
+        slab("v", -h / 2, h / 2, w / 2 - t, w / 2)
+        slab("h", h / 2 - t, h / 2, -w / 2, w / 2 - t)
+    else:
+        slab("box", -h / 2, h / 2, -w / 2, w / 2)
+    if holes:
+        L = (b - a).length
+        out.append(bolts(f"{name}.bolts", a + d * L * 0.04 + up * h / 2, b - d * L * 0.04 + up * h / 2, holes, bolt_r, up, props=props))
+    return out
+
+
+def lathe(name, a, b, profile, sides=20, material="interior", props=None, bevel=0.0):
+    """回转体：轴 a→b，profile 为 [(t, r)…]（t 0…1 沿轴，r 半径；r=0 处收成尖点）。曲面件。"""
+    a, b = Vector(a), Vector(b)
+    axis = b - a
+    bm = bmesh.new()
+    rings = []
+    for t, r in profile:
+        c = a + axis * t
+        rings.append([bm.verts.new(c)] if r <= 1e-6 else _ring(bm, c, axis, r, sides))
+    for A, B in zip(rings, rings[1:]):
+        if len(A) == 1 and len(B) == 1:
+            continue
+        if len(A) == 1:
+            for k in range(sides):
+                bm.faces.new((A[0], B[k], B[(k + 1) % sides]))
+        elif len(B) == 1:
+            for k in range(sides):
+                bm.faces.new((A[k], A[(k + 1) % sides], B[0]))
+        else:
+            _bridge(bm, A, B)
+    if len(rings[0]) > 1:
+        _cap(bm, rings[0], flip=True)
+    if len(rings[-1]) > 1:
+        _cap(bm, rings[-1])
+    obj = new_object(name, bm, material, {"curved": True, **(props or {})})
+    return obj, finish(obj, bevel=bevel, curved=True)
+
+
+def ellipsoid(name, centre, radii, axes=None, u=24, v=12, material="interior", props=None):
+    """椭球：半轴 radii = (a, b, c) 沿 axes 的三根轴（默认世界 x、y、z）。曲面件。"""
+    bm = bmesh.new()
+    bmesh.ops.create_uvsphere(bm, u_segments=u, v_segments=v, radius=1.0)
+    ax = axes or (Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1)))
+    M = Matrix((Vector(ax[0]) * radii[0], Vector(ax[1]) * radii[1], Vector(ax[2]) * radii[2])).transposed()
+    for vv in bm.verts:
+        vv.co = Vector(centre) + M @ vv.co
+    obj = new_object(name, bm, material, {"curved": True, **(props or {})})
+    return obj, finish(obj, bevel=0, curved=True)
+
+
+def tank(name, a, b, r, bands=2, material="tank", props=None, sides=24):
+    """罐：圆柱身 + 两端椭球封头（高 0.45r）+ bands 道箍带（半径 1.04r、宽 0.25r）。返回 [(obj, lines)…]。"""
+    a, b = Vector(a), Vector(b)
+    L = (b - a).length
+    e = 0.45 * r / L
+    prof = [(0.0, 0.0), (e * 0.35, r * 0.62), (e * 0.7, r * 0.88), (e, r), (1 - e, r), (1 - e * 0.7, r * 0.88), (1 - e * 0.35, r * 0.62), (1.0, 0.0)]
+    out = [lathe(name, a, b, prof, sides, material, props)]
+    for k in range(bands):
+        f = (k + 1) / (bands + 1)
+        c = a.lerp(b, f)
+        d = (b - a).normalized()
+        out.append(cylinder(f"{name}.band{k}", c - d * 0.125 * r, c + d * 0.125 * r, r * 1.04, sides, "metal", props, bevel=0.002))
+    return out
+
+
+def valve(name, pos, axis, r, material="metal", props=None, top=None):
+    """球阀：阀体（球，半径 1.5r）+ 两端法兰（半径 2r、厚 0.35r）+ 阀杆 + 执行器方盒（top 方向，默认朝上）。axis 为管线方向。"""
+    pos, w = Vector(pos), Vector(axis).normalized()
+    top = Vector(top or (0, 0, 1))
+    top = (top - w * top.dot(w)).normalized()
+    out = [ellipsoid(f"{name}.body", pos, (1.5 * r, 1.5 * r, 1.5 * r), u=16, v=8, material=material, props=props)]
+    for k, sgn in enumerate((-1, 1)):
+        c = pos + w * sgn * 1.55 * r
+        out.append(cylinder(f"{name}.flange{k}", c - w * 0.18 * r, c + w * 0.18 * r, 2.0 * r, 12, material, props, bevel=0.001))
+    out.append(cylinder(f"{name}.stem", pos + top * 1.3 * r, pos + top * 2.4 * r, 0.35 * r, 8, "chrome", props))
+    side = w.cross(top)
+    s = 1.2 * r
+    pts = [pos + top * (2.4 * r + dz) + w * dx + side * dy for dx in (-s, s) for dy in (-s, s) for dz in (0, 1.8 * r)]
+    out.append(hull(f"{name}.actuator", pts, "avionics", props, bevel=min(0.004, 0.2 * r)))
+    return out
+
+
+def pump(name, pos, axis, r, material="metal", props=None):
+    """泵：蜗壳圆盘（半径 r、厚 0.45r）+ 电机（半径 0.62r、长 1.5r，四道散热筋）+ 出口短管（沿蜗壳切向）。axis 为电机轴向。"""
+    pos, w = Vector(pos), Vector(axis).normalized()
+    out = [cylinder(f"{name}.volute", pos - w * 0.225 * r, pos + w * 0.225 * r, r, 28, material, props, bevel=0.004)]
+    m0 = pos + w * 0.225 * r
+    out.append(cylinder(f"{name}.motor", m0, m0 + w * 1.5 * r, 0.62 * r, 20, "avionics", props, bevel=0.003))
+    for k in range(4):
+        c = m0 + w * (0.25 + 0.3 * k) * r
+        out.append(cylinder(f"{name}.fin{k}", c - w * 0.04 * r, c + w * 0.04 * r, 0.7 * r, 20, "avionics", props, bevel=0.0))
+    u, v, _ = _frame_of(w)
+    p = pos + v * 0.8 * r
+    out.append(cylinder(f"{name}.outlet", p, p + u * 1.3 * r, 0.22 * r, 10, "pipe", props))
+    out.append(cylinder(f"{name}.inlet", pos - w * 0.225 * r, pos - w * 0.75 * r, 0.3 * r, 12, "pipe", props))
+    return out
+
+
+def bracket(name, base, normal, along, size=(0.06, 0.05, 0.04), t=0.005, material="structure", props=None):
+    """L 形角码：底板贴在 base（法线 normal）上，沿 along 长 size[0]、宽 size[2]，立板高 size[1]；底板上两只螺栓。返回 [(obj, lines)…]。"""
+    base, n = Vector(base), Vector(normal).normalized()
+    d = Vector(along)
+    d = (d - n * d.dot(n)).normalized()
+    s = n.cross(d)
+    L, H, W = size
+    out = []
+    pts = [base + d * x + s * y + n * z for x in (-L / 2, L / 2) for y in (-W / 2, W / 2) for z in (0, t)]
+    out.append(hull(f"{name}.foot", pts, material, props, bevel=0.0012))
+    pts = [base + d * x + s * y + n * z for x in (-L / 2, L / 2) for y in (W / 2 - t, W / 2) for z in (0, H)]
+    out.append(hull(f"{name}.leg", pts, material, props, bevel=0.0012))
+    out.append(bolts(f"{name}.bolts", base - d * L * 0.3 + n * t - s * W * 0.1, base + d * L * 0.3 + n * t - s * W * 0.1, 2, max(0.003, W * 0.12), n, props=props))
     return out

@@ -174,9 +174,9 @@
     return silhouette;
   }
   const drawHooks = [];
-  /** 状态显隐（剖视等）：showState[名] 为真时，show 为该名的网格与线层才画。 */
+  /** 状态显隐（剖视等）：showState[名] 为真时，show 为该名的网格与线层才画；show 为 "!名" 的反过来（剖视时隐去的外部件）。 */
   const showState = {};
-  const showOn = (k) => !!showState[k];
+  const showOn = (k) => (k[0] === "!" ? !showState[k.slice(1)] : !!showState[k]);
   function draw() {
     const silhouette = prepareDraw();
     renderAll(silhouette);
@@ -313,11 +313,26 @@
     },
     /** 审图对照：逐项关掉基础质感（ao 顶点 AO 强度、detail 细节贴图开关、bloom 泛光强度）；不传的项不变，返回当前值。 */
     look(opts = {}) {
+      // 画法：mode "lines"（A，线条 + 五档明暗）/ "metal"（B，金属质感，线条降一级）
+      if (opts.mode) {
+        const metal = opts.mode === "metal";
+        shared.uLook.value = metal ? 1 : 0;
+        lineLook.levels = metal ? DATA.metal.lines : [1, 1, 1];
+        for (const layer of airLayers) if (!layer.accent) layer.levels(...lineLook.levels);
+      }
       if (opts.ao !== undefined) shared.uAOK.value = opts.ao;
       if (opts.detail !== undefined) for (const m of materials) if (m.uniforms.uDetail.value !== blackTex) m.uniforms.uUseDetail.value = opts.detail ? 1 : 0;
       if (opts.bloom !== undefined) composeMat.uniforms.uBloom.value = opts.bloom;
       draw();
-      return { ao: shared.uAOK.value, bloom: composeMat.uniforms.uBloom.value };
+      return { ao: shared.uAOK.value, bloom: composeMat.uniforms.uBloom.value, mode: shared.uLook.value ? "metal" : "lines" };
+    },
+    /** 审图：模型坐标里的点（或地标名）投到舞台上的 CSS 像素位置（叠图对位用）。 */
+    project(point) {
+      prepareDraw();
+      const p = new THREE.Vector3(...(typeof point === "string" ? DATA.landmarks[point] : point)).applyMatrix4(airframe.matrixWorld).project(camera);
+      const rect = canvas.getBoundingClientRect();
+      const host = stage.getBoundingClientRect();
+      return [rect.left - host.left + ((p.x + 1) / 2) * rect.width, rect.top - host.top + ((1 - p.y) / 2) * rect.height];
     },
     set(id, value) {
       setNow(id, value);
