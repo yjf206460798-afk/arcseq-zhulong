@@ -1,0 +1,12 @@
+{
+  "image": "K1_驾驶舱侧剖_分色.png",
+  "size": [1448, 1086],
+  "maps_to": "K1_驾驶舱侧剖.png",
+  "maps_to_size": [1774, 887],
+  "note": "GPT 改了画幅（2:1 → 4:3），分色图相对原图横竖缩放不同，必须按轴分别换算。主剖面区域：原图 x = 1.218 * 分色 x + bx，y = 0.914 * 分色 y + by（bx、by 见 transform）。左下两张小图（正面剖、俯视剖）另行标定，不适用此变换。米制标定（像素/米、原点 s=0 的位置）由云端在原图上按眼点做，填进 K1_驾驶舱侧剖.calib.json。",
+  "transform_seg_to_ref": {"sx": 1.218, "bx": 14.9, "sy": 0.914, "by": 4.4},
+  "anchors_ref_px": {"eye": [97, 447], "nose_gear_wheel": [1085, 530], "helmet": [1450, 345], "avionics_box_4": [610, 435], "brow_peak": [998, 297]},
+  "anchors_seg_px": {"eye": [62, 476], "nose_gear_wheel": [893, 580], "helmet": [1165, 375], "avionics_box_4": [490, 470], "brow_peak": [810, 322]},
+  "residual_after_fit_pct_width": {"eye": 0.6, "nose_gear_wheel": 1.0, "helmet": 0.9, "avionics_box_4": 0.1, "brow_peak": 0.2},
+  "verdict": "可用：五个锚点残差都 ≤ 1% 画幅，叠图（K1_分色叠图.png）零件逐块对得上。前起落架轮与头盔各偏约 1%，以原图为准。"
+}
